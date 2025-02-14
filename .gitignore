@@ -1,0 +1,9 @@
+.terraform
+terraform.tfstate
+*.tfstate*
+terraform.tfvars
+local/*
+.DS_Store
+*.pem
+*.jar
+*.json*

@@ -1,0 +1,13 @@
+name: Terraform Validation and Testing
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  AWS_REGION: us-west-2
+  TF_VERSION: 1.5.0
+
+jobs:
