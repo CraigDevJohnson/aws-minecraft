@@ -34,3 +34,26 @@ variable "server_type" {
     error_message = "server_type must be either 'bedrock' or 'java'"
   }
 }
+
+variable "world_data_volume_size" {
+  description = "Size of the EBS volume for world data (in GB)"
+  type        = number
+  default     = 50
+}
+
+variable "world_data_volume_type" {
+  description = "Type of EBS volume for world data"
+  type        = string
+  default     = "gp3"
+}
+
+variable "world_data_volume_iops" {
+  description = "IOPS for the EBS volume (only for gp3)"
+  type        = number
+  default     = 3000
+}
+
+variable "availability_zone" {
+  description = "Availability zone to launch the instance and create the EBS volume in"
+  type        = string
+}

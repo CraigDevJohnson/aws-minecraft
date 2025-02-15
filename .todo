@@ -32,10 +32,13 @@ Compute Layer:
 
 Storage Layer:
     ✓ Configure EBS volumes for world data
-    ☐ Set up S3 bucket for backups
-    ☐ Implement backup rotation policy
-    ☐ Configure automated snapshot management
-    ☐ Implement world data versioning
+    ✓ Set up automatic mounting and data persistence
+    ✓ Configure local backup rotation
+    ✓ Set up AWS Backup vault and plans
+    ✓ Implement backup lifecycle policies
+    ☐ Configure backup encryption with KMS
+    ☐ Set up backup notifications
+    ☐ Implement backup testing procedures
 
 Security:
     ☐ Implement IAM roles and policies

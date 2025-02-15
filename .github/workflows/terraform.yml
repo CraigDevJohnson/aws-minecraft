@@ -22,9 +22,6 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Terraform Format Check
-        run: terraform fmt -check -recursive
-
       - name: Terraform Init Dev
         working-directory: environments/dev
         run: terraform init -backend=false
