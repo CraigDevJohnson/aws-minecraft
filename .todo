@@ -1,71 +1,133 @@
 AWS Minecraft Server Deployment Tasks:
 
 Infrastructure Setup:
-    ☐ Create basic project structure and files
-        ☐ main.tf
-        ☐ variables.tf
-        ☐ outputs.tf
-        ☐ terraform.tfvars
-        ☐ backend.tf
-        ☐ providers.tf
-    ☐ Configure AWS provider and backend storage
-    ☐ Set up workspaces for dev/prod environments
+    ✓ Create basic project structure and files
+        ✓ main.tf
+        ✓ variables.tf
+        ✓ outputs.tf
+        ✓ terraform.tfvars
+        ✓ backend.tf
+        ✓ providers.tf
+    ✓ Configure AWS provider and backend storage
+    ✓ Set up workspaces for dev/prod environments
+    ☐ Implement remote state locking mechanism
+    ☐ Set up state backup strategy
 
 Network Layer:
-    ☐ Design VPC architecture
-    ☐ Create security groups
-    ☐ Configure network ACLs
-    ☐ Set up public/private subnets
+    ✓ Design VPC architecture
+    ✓ Create security groups
+    ✓ Configure network ACLs
+    ✓ Set up public/private subnets
+    ☐ Implement VPC flow logs
+    ☐ Set up bastion host for production
 
 Compute Layer:
-    ☐ Research and select optimal EC2 instance type for cost/performance
-    ☐ Create EC2 launch template
+    ✓ Research and select optimal EC2 instance type for cost/performance
+    ✓ Create EC2 launch template
+    ✓ Configure instance types for both Bedrock and Java
     ☐ Configure auto-scaling options
     ☐ Set up spot instance configuration for cost optimization
+    ☐ Implement instance scheduling based on player activity
+    ☐ Configure instance metadata service v2
 
 Storage Layer:
-    ☐ Configure EBS volumes for world data
+    ✓ Configure EBS volumes for world data
     ☐ Set up S3 bucket for backups
     ☐ Implement backup rotation policy
+    ☐ Configure automated snapshot management
+    ☐ Implement world data versioning
 
 Security:
     ☐ Implement IAM roles and policies
     ☐ Set up KMS encryption for sensitive data
-    ☐ Configure security group rules
+    ✓ Configure security group rules
     ☐ Implement backup encryption
+    ☐ Set up AWS WAF for DDoS protection
+    ☐ Implement AWS Shield (if needed)
 
 Minecraft Server Setup:
-    ☐ Create server installation script
-    ☐ Configure server properties
+    ✓ Create server installation script
+    ✓ Configure server properties
+    ✓ Set up Java 21 runtime for modern server support
+    ✓ Configure optimal memory allocation for both server types
     ☐ Set up automatic updates
-    ☐ Configure memory allocation
+    ☐ Implement server-side plugins management
+    ☐ Set up automated world backups
 
 Monitoring and Maintenance:
     ☐ Set up CloudWatch alarms
+        ☐ CPU Utilization
+        ☐ Memory Usage
+        ☐ Network Traffic
+        ☐ Disk Usage
     ☐ Configure logging
+        ☐ System logs
+        ☐ Application logs
+        ☐ Access logs
     ☐ Create health checks
     ☐ Implement auto-recovery
+    ☐ Set up performance metrics dashboard
 
 Cost Optimization:
     ☐ Implement instance scheduling
     ☐ Configure auto-shutdown when inactive
     ☐ Set up cost alerts
-    ☐ Implement resource tagging strategy
+    ✓ Implement resource tagging strategy
+    ☐ Configure AWS Budget alerts
+    ☐ Implement cost allocation tags
 
 Documentation:
-    ☐ Create README.md
-    ☐ Document architecture decisions
+    ✓ Create README.md
+    ✓ Document current architecture decisions
     ☐ Create operator manual
     ☐ Document backup/restore procedures
+    ☐ Create troubleshooting guide
+    ☐ Document scaling procedures
 
 Testing:
-    ☐ Create terraform validation tests
+    ✓ Create terraform validation tests
     ☐ Set up integration tests
     ☐ Document testing procedures
     ☐ Create load testing scenarios
+    ☐ Implement chaos engineering tests
+    ☐ Create disaster recovery tests
 
 CI/CD Pipeline:
     ☐ Set up GitHub Actions workflow
     ☐ Configure terraform validation
     ☐ Implement automated testing
     ☐ Create deployment stages
+    ☐ Set up environment promotion strategy
+    ☐ Implement rollback procedures
+
+Performance Optimization:
+    ✓ Configure JVM optimization for Minecraft Java server
+    ✓ Implement server-specific instance sizing
+    ☐ Implement network optimization
+    ☐ Set up CDN for resource distribution
+    ☐ Optimize EBS volume performance
+    ☐ Configure instance CPU credits
+
+GitHub Repository Preparation:
+    ✓ Update .gitignore for sensitive files
+    ☐ Remove any committed sensitive files from history
+    ☐ Add PR template
+    ☐ Set up branch protection rules
+    ☐ Configure GitHub Actions environment secrets
+    ☐ Add security scanning for Infrastructure as Code
+    ☐ Set up Dependabot for security updates
+    ☐ Add CODEOWNERS file
+    ☐ Create contribution guidelines
+    ☐ Add security policy file
+
+Security Hardening:
+    ☐ Rotate any exposed AWS credentials
+    ☐ Remove any hardcoded secrets
+    ☐ Configure AWS KMS for encryption
+    ☐ Set up AWS Secrets Manager
+    ☐ Implement secure parameter handling
+    ☐ Add security headers
+    ☐ Configure AWS WAF rules
+    ☐ Set up security monitoring
+    ☐ Implement AWS Config rules
+    ☐ Set up GuardDuty

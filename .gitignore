@@ -1,9 +1,48 @@
-.terraform
+# Terraform
+.terraform/
+.terraform.lock.hcl
 terraform.tfstate
+terraform.tfstate.backup
 *.tfstate*
 terraform.tfvars
-local/*
+*.tfvars
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Local development
+local/
+.env
+*.log
 .DS_Store
+
+# SSH Keys and Certificates
 *.pem
+*.key
+*.crt
+*.pub
+
+# Application specific
 *.jar
-*.json*
+*.zip
+server.properties
+eula.txt
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build and temp files
+*.tmp
+*.bak
+*.backup
+
+# Sensitive data
+secrets.tfvars
+.azure/
+.aws/
+credentials.json
+**/minecraft/worlds/

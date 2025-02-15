@@ -1,0 +1,15 @@
+# Infrastructure changes
+*.tf @infrastructure-team
+
+# Server installation scripts
+modules/compute/scripts/ @ops-team
+
+# Security configurations
+modules/security/ @security-team
+SECURITY.md @security-team
+
+# Documentation
+*.md @tech-writers
+
+# GitHub Actions
+.github/workflows/ @devops-team
