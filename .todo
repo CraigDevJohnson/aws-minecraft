@@ -36,9 +36,12 @@ Storage Layer:
     ✓ Configure local backup rotation
     ✓ Set up AWS Backup vault and plans
     ✓ Implement backup lifecycle policies
+    ✓ Configure backup permissions and roles
+    ✓ Test backup selection functionality
     ☐ Configure backup encryption with KMS
     ☐ Set up backup notifications
     ☐ Implement backup testing procedures
+    ☐ Validate backup restoration process
 
 Security:
     ☐ Implement IAM roles and policies
@@ -53,9 +56,15 @@ Minecraft Server Setup:
     ✓ Configure server properties
     ✓ Set up Java 21 runtime for modern server support
     ✓ Configure optimal memory allocation for both server types
+    ✓ Implement EBS volume wait logic
+    ✓ Configure systemd service
+    ✓ Set up service logging
+    ☐ Test server auto-start on reboot
+    ☐ Validate server installation process
+    ☐ Test world data persistence
     ☐ Set up automatic updates
     ☐ Implement server-side plugins management
-    ☐ Set up automated world backups
+    ✓ Set up automated world backups
 
 Monitoring and Maintenance:
     ☐ Set up CloudWatch alarms

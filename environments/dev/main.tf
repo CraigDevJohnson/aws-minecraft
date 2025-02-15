@@ -35,4 +35,6 @@ module "storage" {
 
   environment    = var.environment
   ebs_volume_arn = module.compute.world_data_volume_arn
+
+  depends_on = [module.compute]
 }
