@@ -39,18 +39,18 @@ RETRY_COUNT=0
 DOWNLOAD_URL="https://piston-data.mojang.com/v1/objects/4707d00eb834b446575d89a61a11b5d548d8c001/server.jar"
 
 echo "[$(date)] Downloading Minecraft Java server..."
-while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if wget --no-verbose -O server.jar "$DOWNLOAD_URL"; then
+while [ "${RETRY_COUNT}" -lt "${MAX_RETRIES}" ]; do
+    if wget --no-verbose -O server.jar "${DOWNLOAD_URL}"; then
         echo "[$(date)] Download successful"
         break
     fi
     RETRY_COUNT=$((RETRY_COUNT + 1))
-    echo "[$(date)] Download attempt $RETRY_COUNT failed, retrying in 5 seconds..."
+    echo "[$(date)] Download attempt ${RETRY_COUNT} failed, retrying in 5 seconds..."
     sleep 5
 done
 
-if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-    echo "[$(date)] Failed to download server after $MAX_RETRIES attempts"
+if [ "${RETRY_COUNT}" -eq "${MAX_RETRIES}" ]; then
+    echo "[$(date)] Failed to download server after ${MAX_RETRIES} attempts"
     exit 1
 fi
 

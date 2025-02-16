@@ -38,7 +38,9 @@ test_local_backup_creation() {
     /opt/minecraft/backup.sh
     
     # Verify backup file exists
-    local LATEST_BACKUP=$(ls -t "$BACKUP_DIR"/world_backup_*.tar.gz | head -n1)
+    local LATEST_BACKUP
+    LATEST_BACKUP=$(ls -t "$BACKUP_DIR"/world_backup_*.tar.gz 2>/dev/null | head -n1) || true
+    
     if [ -f "$LATEST_BACKUP" ]; then
         echo "Local backup created successfully: $LATEST_BACKUP"
         return 0

@@ -182,3 +182,6 @@ while [  -lt  ]; do
         echo "[Sun Feb 16 07:42:42 UTC 2025] Fallback download successful"
         break
     fi
+
+
+    Do not start to code or anything with a solution until we've gone over together and I agree with your solution.

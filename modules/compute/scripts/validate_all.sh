@@ -105,16 +105,16 @@ BACKUP_STATUS=1
 PERSISTENCE_STATUS=1
 
 # Test server functionality
-for i in $(seq 1 $MAX_RETRIES); do
-    if run_server_tests $i; then
+for i in $(seq 1 "$MAX_RETRIES"); do
+    if run_server_tests "$i"; then
         SERVER_STATUS=0
         break
     fi
 done
 
 # Test backup functionality
-for i in $(seq 1 $MAX_RETRIES); do
-    if run_backup_tests $i; then
+for i in $(seq 1 "$MAX_RETRIES"); do
+    if run_backup_tests "$i"; then
         BACKUP_STATUS=0
         break
     fi
@@ -124,7 +124,7 @@ done
 log_message "Testing world data persistence..."
 TEST_FILE="/mnt/minecraft_data/worlds/persistence_test_$(date +%s).txt"
 
-for i in $(seq 1 $MAX_RETRIES); do
+for i in $(seq 1 "$MAX_RETRIES"); do
     log_message "Persistence test attempt $i/$MAX_RETRIES..."
     
     if ! mountpoint -q /mnt/minecraft_data; then
@@ -133,13 +133,13 @@ for i in $(seq 1 $MAX_RETRIES); do
         continue
     fi
     
-    if echo "Test data $(date)" > "$TEST_FILE" 2>/dev/null; then
+    if echo "Test data $(date)" > "${TEST_FILE}" 2>/dev/null; then
         sync
         sleep 2
-        if [ -f "$TEST_FILE" ] && grep -q "Test data" "$TEST_FILE"; then
-            log_message "✓ World data persistence test passed (attempt $i)"
+        if [ -f "${TEST_FILE}" ] && grep -q "Test data" "${TEST_FILE}"; then
+            log_message "✓ World data persistence test passed (attempt ${i})"
             PERSISTENCE_STATUS=0
-            rm -f "$TEST_FILE"
+            rm -f "${TEST_FILE}"
             break
         fi
     fi

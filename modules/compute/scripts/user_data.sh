@@ -2,19 +2,19 @@
 set -e
 
 echo "[$(date)] Starting Minecraft server setup..."
-
+apt-get update && apt-get install -y jq
 # Create mount point and minecraft directories
 mkdir -p /opt/minecraft
 mkdir -p /mnt/minecraft_data
 
 # Function to find the EBS device
 find_ebs_device() {
-    if [ -e /dev/xvdf ]; then
+    if [ -e /dev/xvdf]; then
         echo "/dev/xvdf"
         return 0
     fi
     
-    if [ -e /dev/nvme1n1 ]; then
+    if [ -e /dev/nvme1n1]; then
         echo "/dev/nvme1n1"
         return 0
     fi
@@ -67,14 +67,13 @@ fi
 ln -sf /mnt/minecraft_data/worlds /opt/minecraft/worlds
 ln -sf /mnt/minecraft_data/backups /opt/minecraft/backups
 
-# Install server
-echo "[$(date)] Running server installation script..."
-cat > /tmp/install.sh <<EOSCRIPT
-${install_script}
-EOSCRIPT
-
+# Download server installation script from S3
+echo "[$(date)] Downloading installation script from S3..."
+aws s3 cp "s3://${bucket_name}/${install_key}" /tmp/install.sh
 chmod +x /tmp/install.sh
-/tmp/install.sh
+
+echo "[$(date)] Running server installation script..."
+/tmp/install.sh "${server_type}"
 
 # Move world data if needed
 if [ -d "/opt/minecraft/worlds" ] && [ ! -L "/opt/minecraft/worlds" ]; then
@@ -84,14 +83,14 @@ if [ -d "/opt/minecraft/worlds" ] && [ ! -L "/opt/minecraft/worlds" ]; then
 fi
 
 # Backup script
-cat > /opt/minecraft/backup.sh <<EOSCRIPT
+cat > /opt/minecraft/backup.sh <<'EOSCRIPT'
 #!/bin/bash
 BACKUP_DIR="/mnt/minecraft_data/backups"
 WORLDS_DIR="/mnt/minecraft_data/worlds"
-DATE=\$(date +%Y%m%d_%H%M%S)
+DATE=$(date +%Y%m%d_%H%M%S)
 
-tar -czf "\$BACKUP_DIR/world_backup_\$DATE.tar.gz" -C "\$WORLDS_DIR" .
-ls -t "\$BACKUP_DIR"/world_backup_*.tar.gz | tail -n +6 | xargs -r rm
+tar -czf "$BACKUP_DIR/world_backup_$DATE.tar.gz" -C "$WORLDS_DIR" .
+ls -t "$BACKUP_DIR"/world_backup_*.tar.gz | tail -n +6 | xargs -r rm
 EOSCRIPT
 
 chmod +x /opt/minecraft/backup.sh
@@ -101,7 +100,7 @@ echo "0 0 * * * ubuntu /opt/minecraft/backup.sh" > /etc/cron.d/minecraft-backup
 
 # Create systemd service
 echo "[$(date)] Creating systemd service..."
-cat > /etc/systemd/system/minecraft.service <<EOF
+cat > /etc/systemd/system/minecraft.service <<'EOF'
 [Unit]
 Description=Minecraft Server
 After=network.target
@@ -120,7 +119,7 @@ WantedBy=multi-user.target
 EOF
 
 # Server startup script
-cat > /opt/minecraft/run_server.sh <<EOSCRIPT
+cat > /opt/minecraft/run_server.sh <<'EOSCRIPT'
 #!/bin/bash
 cd /opt/minecraft
 
@@ -143,20 +142,23 @@ EOSCRIPT
 
 chmod +x /opt/minecraft/run_server.sh
 
+# ...existing code...
+
 # Setup test environment
 echo "[$(date)] Setting up test scripts..."
 mkdir -p /opt/minecraft/test
 
-# Install test scripts
-for script in test_server.sh test_backup.sh validate_all.sh; do
-    if [ -f "/tmp/$script" ]; then
-        echo "[$(date)] Installing $script..."
-        cp "/tmp/$script" "/opt/minecraft/test/"
-        chmod +x "/opt/minecraft/test/$script"
-    else
-        echo "[$(date)] Warning: $script not found in /tmp"
-    fi
-done
+# Parse script keys from JSON
+script_keys_json=${script_keys}
+eval "$(echo "$script_keys_json" | jq -r 'to_entries | .[] | "script_" + (.key | gsub("[.]"; "_")) + "=\"" + .value + "\""')"
+
+echo "[$(date)] Downloading test scripts..."
+aws s3 cp "s3://${bucket_name}/$script_test_server_sh" "/opt/minecraft/test/test_server.sh"
+aws s3 cp "s3://${bucket_name}/$script_validate_all_sh" "/opt/minecraft/test/validate_all.sh"
+aws s3 cp "s3://${bucket_name}/$script_test_backup_sh" "/opt/minecraft/test/test_backup.sh"
+
+# ...existing code...
+chmod +x /opt/minecraft/test/*.sh
 
 # Set permissions
 chown -R ubuntu:ubuntu /opt/minecraft/test

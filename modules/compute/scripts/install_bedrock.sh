@@ -17,7 +17,11 @@ exec 2>&1
 
 set -ex  # Exit on error, print commands
 
-echo "[$(date)] Starting Minecraft Bedrock server installation..."
+timestamp() {
+    date "+%Y-%m-%d %H:%M:%S"
+}
+
+echo "[$(timestamp)] Starting Minecraft Bedrock server installation..."
 
 # Update package lists
 apt-get update
@@ -32,33 +36,33 @@ cd /opt/minecraft
 MAX_RETRIES=3
 RETRY_COUNT=0
 
-echo "[$(date)] Fetching download URL from Minecraft website..."
-while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+echo "[$(timestamp)] Fetching download URL from Minecraft website..."
+while [ "${RETRY_COUNT}" -lt "${MAX_RETRIES}" ]; do
     # Try to download from the official preview page
-    DOWNLOAD_URL=$(curl -H "Accept-Encoding: identity" -H "Accept-Language: en" -s -L -A "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; BEDROCK-UPDATER)" https://minecraft.net/en-us/download/server/bedrock/ |  grep -o 'https.*/bin-linux/.*.zip')    
-    if [ ! -z "$DOWNLOAD_URL" ]; then
-        echo "[$(date)] Found download URL: $DOWNLOAD_URL"
-        if wget -U "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; BEDROCK-UPDATER)" $DOWNLOAD_URL -O bedrock-server.zip; then
-            echo "[$(date)] Download successful"
+    DOWNLOAD_URL=$(curl -H "Accept-Encoding: identity" -H "Accept-Language: en" -s -L -A "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; BEDROCK-UPDATER)" https://minecraft.net/en-us/download/server/bedrock/ | grep -o 'https.*/bin-linux/.*.zip' || echo '')
+    if [ -n "${DOWNLOAD_URL}" ]; then
+        echo "[$(timestamp)] Found download URL: ${DOWNLOAD_URL}"
+        if wget -U "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; BEDROCK-UPDATER)" "${DOWNLOAD_URL}" -O bedrock-server.zip; then
+            echo "[$(timestamp)] Download successful"
             break
         fi
     fi
     
     # Fallback to direct download from known URL pattern
     FALLBACK_URL="https://www.minecraft.net/bedrockdedicatedserver/bin-linux/bedrock-server-1.21.60.10.zip"
-    echo "[$(date)] Trying fallback URL: $FALLBACK_URL"
-    if wget -U "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; BEDROCK-UPDATER)" $FALLBACK_URL -O bedrock-server.zip; then
-        echo "[$(date)] Fallback download successful"
+    echo "[$(timestamp)] Trying fallback URL: ${FALLBACK_URL}"
+    if wget -U "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; BEDROCK-UPDATER)" "${FALLBACK_URL}" -O bedrock-server.zip; then
+        echo "[$(timestamp)] Fallback download successful"
         break
     fi
     
     RETRY_COUNT=$((RETRY_COUNT + 1))
-    echo "[$(date)] Download attempt $RETRY_COUNT failed, retrying in 5 seconds..."
+    echo "[$(timestamp)] Download attempt ${RETRY_COUNT} failed, retrying in 5 seconds..."
     sleep 5
 done
 
-if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-    echo "[$(date)] Failed to download server after $MAX_RETRIES attempts"
+if [ "${RETRY_COUNT}" -eq "${MAX_RETRIES}" ]; then
+    echo "[$(timestamp)] Failed to download server after ${MAX_RETRIES} attempts"
     exit 1
 fi
 
@@ -132,4 +136,4 @@ systemctl daemon-reload
 systemctl enable minecraft
 systemctl start minecraft
 
-echo "[$(date)] Installation completed successfully"
+echo "[$(timestamp)] Installation completed successfully"
