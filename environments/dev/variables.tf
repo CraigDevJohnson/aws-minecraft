@@ -12,13 +12,13 @@ variable "key_name" {
 variable "instance_type" {
   description = "EC2 instance type"
   type        = string
-  default     = "t3.small"  # Default for Bedrock, override with -var for Java
+  default     = "t3.small" # Default for Bedrock, override with -var for Java
 }
 
 variable "server_type" {
   description = "Type of Minecraft server to deploy (bedrock or java)"
   type        = string
-  default     = "bedrock"  # Default to Bedrock, override with -var for Java
+  default     = "bedrock" # Default to Bedrock, override with -var for Java
 
   validation {
     condition     = contains(["bedrock", "java"], var.server_type)

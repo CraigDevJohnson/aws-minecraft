@@ -1,20 +1,47 @@
 #!/bin/bash
 set -e
 
+# Enable debug logging
+exec 1> >(tee -a /var/log/cloud-init-output.log)
+exec 2>&1
+set -x
+
+# Add error handling function
+handle_error() {
+    local exit_code=$?
+    echo "[$(date)] Error on line $1: Exit code $exit_code"
+    exit $exit_code
+}
+
+# Set up error handling
+trap 'handle_error $LINENO' ERR
+
+# Script start
 echo "[$(date)] Starting Minecraft server setup..."
-apt-get update && apt-get install -y jq
+
+# Install required packages
+apt-get update 
+DEBIAN_FRONTEND=noninteractive apt-get install -y jq unzip curl
+
+# Install AWS CLI v2
+echo "[$(date)] Installing AWS CLI..."
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip -q awscliv2.zip
+./aws/install
+rm -rf aws awscliv2.zip
+
 # Create mount point and minecraft directories
 mkdir -p /opt/minecraft
 mkdir -p /mnt/minecraft_data
 
 # Function to find the EBS device
 find_ebs_device() {
-    if [ -e /dev/xvdf]; then
+    if [ -e /dev/xvdf ]; then
         echo "/dev/xvdf"
         return 0
     fi
     
-    if [ -e /dev/nvme1n1]; then
+    if [ -e /dev/nvme1n1 ]; then
         echo "/dev/nvme1n1"
         return 0
     fi
@@ -142,25 +169,93 @@ EOSCRIPT
 
 chmod +x /opt/minecraft/run_server.sh
 
-# ...existing code...
-
 # Setup test environment
 echo "[$(date)] Setting up test scripts..."
 mkdir -p /opt/minecraft/test
 
+# Add IMDSv2 token handling function
+get_imds_token() {
+    TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" 2>/dev/null)
+    if [ $? -eq 0 ] && [ -n "$TOKEN" ]; then
+        echo "$TOKEN"
+        return 0
+    fi
+    return 1
+}
+
+# Update the download_script function
+download_script() {
+    local script_name="$1"
+    local dest_path="$2"
+    local max_retries=5
+    local retry_count=0
+    local wait_time=5
+
+    echo "[$(date)] Downloading $script_name..."
+    while [ $retry_count -lt $max_retries ]; do
+        # Get IMDSv2 token
+        TOKEN=$(get_imds_token)
+        if [ $? -ne 0 ]; then
+            echo "[$(date)] Failed to get IMDSv2 token, waiting..."
+            sleep $wait_time
+            wait_time=$((wait_time * 2))
+            retry_count=$((retry_count + 1))
+            continue
+        fi
+
+        # Check instance profile
+        ROLE=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/meta-data/iam/security-credentials/)
+        if [ -z "$ROLE" ]; then
+            echo "[$(date)] IAM role not available, waiting..."
+            sleep $wait_time
+            wait_time=$((wait_time * 2))
+            retry_count=$((retry_count + 1))
+            continue
+        fi
+
+        # Get credentials
+        CREDENTIALS=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/meta-data/iam/security-credentials/$ROLE)
+        if [ $? -eq 0 ] && echo "$CREDENTIALS" | jq -e .AccessKeyId >/dev/null 2>&1; then
+            # Configure AWS CLI with temporary credentials
+            export AWS_ACCESS_KEY_ID=$(echo "$CREDENTIALS" | jq -r .AccessKeyId)
+            export AWS_SECRET_ACCESS_KEY=$(echo "$CREDENTIALS" | jq -r .SecretAccessKey)
+            export AWS_SESSION_TOKEN=$(echo "$CREDENTIALS" | jq -r .Token)
+
+            # Attempt to download and process the script
+            if aws s3 cp "s3://${bucket_name}/$script_name" - 2>/dev/null | base64 -d > "$dest_path"; then
+                if [ -f "$dest_path" ] && [ -s "$dest_path" ]; then
+                    chmod +x "$dest_path"
+                    sed -i 's/\r$//' "$dest_path"
+                    echo "[$(date)] Successfully downloaded and verified $script_name"
+                    return 0
+                fi
+            fi
+        fi
+
+        echo "[$(date)] Retry $retry_count/$max_retries for $script_name"
+        sleep $wait_time
+        wait_time=$((wait_time * 2))
+        retry_count=$((retry_count + 1))
+    done
+
+    echo "[$(date)] Failed to download $script_name after $max_retries attempts"
+    return 1
+}
+
 # Parse script keys from JSON
-script_keys_json=${script_keys}
-eval "$(echo "$script_keys_json" | jq -r 'to_entries | .[] | "script_" + (.key | gsub("[.]"; "_")) + "=\"" + .value + "\""')"
+eval "$(echo '${script_keys_map}' | jq -r 'to_entries[] | "script_" + (.key | gsub("[.]"; "_")) + "=" + .value')"
 
-echo "[$(date)] Downloading test scripts..."
-aws s3 cp "s3://${bucket_name}/$script_test_server_sh" "/opt/minecraft/test/test_server.sh"
-aws s3 cp "s3://${bucket_name}/$script_validate_all_sh" "/opt/minecraft/test/validate_all.sh"
-aws s3 cp "s3://${bucket_name}/$script_test_backup_sh" "/opt/minecraft/test/test_backup.sh"
+# Download all required scripts
+failed_downloads=0
+for script_var in $(echo '${script_keys_map}' | jq -r 'keys[]'); do
+    script_name=$(echo '${script_keys_map}' | jq -r --arg key "$script_var" '.[$key]')
+    dest_path="/opt/minecraft/test/$script_name"
+    if ! download_script "$script_name" "$dest_path"; then
+        failed_downloads=$((failed_downloads + 1))
+    fi
+done
 
-# ...existing code...
-chmod +x /opt/minecraft/test/*.sh
-
-# Set permissions
+# Set correct permissions
 chown -R ubuntu:ubuntu /opt/minecraft/test
 chmod -R 755 /opt/minecraft/test
 

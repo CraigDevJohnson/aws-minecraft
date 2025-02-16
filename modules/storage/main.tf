@@ -4,9 +4,9 @@ locals {
 
 # Create a backup vault for Minecraft world data
 resource "aws_backup_vault" "minecraft" {
-  name = "minecraft-${var.environment}-backup-vault"
+  name          = "minecraft-${var.environment}-backup-vault"
   force_destroy = true
-  
+
   tags = {
     Environment = var.environment
     Project     = "minecraft"
@@ -20,7 +20,7 @@ resource "aws_backup_plan" "minecraft" {
   rule {
     rule_name         = "daily_backup"
     target_vault_name = aws_backup_vault.minecraft.name
-    schedule          = "cron(0 5 ? * * *)"  # Daily at 5 AM UTC
+    schedule          = "cron(0 5 ? * * *)" # Daily at 5 AM UTC
 
     lifecycle {
       delete_after = var.backup_retention_days
@@ -28,20 +28,20 @@ resource "aws_backup_plan" "minecraft" {
 
     # Add completion window and start window
     completion_window = "120" # 2 hours
-    start_window     = "60"  # 1 hour
+    start_window      = "60"  # 1 hour
   }
 
   rule {
     rule_name         = "weekly_backup"
     target_vault_name = aws_backup_vault.minecraft.name
-    schedule          = "cron(0 5 ? * 1 *)"  # Weekly on Sunday at 5 AM UTC
+    schedule          = "cron(0 5 ? * 1 *)" # Weekly on Sunday at 5 AM UTC
 
     lifecycle {
       delete_after = var.weekly_backup_retention_days
     }
 
     completion_window = "180" # 3 hours
-    start_window     = "60"  # 1 hour
+    start_window      = "60"  # 1 hour
   }
 
   tags = {
@@ -53,7 +53,7 @@ resource "aws_backup_plan" "minecraft" {
 # Create IAM role for AWS Backup with comprehensive permissions
 resource "aws_iam_role" "backup" {
   name = "minecraft-${var.environment}-backup-role"
-  
+
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -141,7 +141,7 @@ resource "aws_backup_selection" "minecraft" {
     key   = "Environment"
     value = var.environment
   }
-  
+
   selection_tag {
     type  = "STRINGEQUALS"
     key   = "Project"

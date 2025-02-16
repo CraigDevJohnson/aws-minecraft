@@ -12,6 +12,11 @@ Infrastructure Setup:
     ✓ Set up workspaces for dev/prod environments
     ☐ Implement remote state locking mechanism
     ☐ Set up state backup strategy
+    ✓ Fix user_data.sh syntax errors
+    ✓ Improve script error handling
+    ✓ Add debug logging
+    ☐ Test script download functionality
+    ☐ Validate IMDSv2 token handling
 
 Network Layer:
     ✓ Design VPC architecture
@@ -44,12 +49,20 @@ Storage Layer:
     ☐ Validate backup restoration process
 
 Security:
+    ✓ Implement IMDSv2
+    ✓ Configure proper IAM roles and policies
+    ✓ Add CloudWatch logging permissions
+    ☐ Implement AWS Systems Manager Session Manager
+    ☐ Set up CloudWatch alarms for security events
     ☐ Implement IAM roles and policies
     ☐ Set up KMS encryption for sensitive data
     ✓ Configure security group rules
     ☐ Implement backup encryption
     ☐ Set up AWS WAF for DDoS protection
     ☐ Implement AWS Shield (if needed)
+    ✓ Add error handling for credential retrieval
+    ☐ Test credential rotation
+    ☐ Validate script permissions
 
 Minecraft Server Setup:
     ✓ Create server installation script
@@ -67,18 +80,22 @@ Minecraft Server Setup:
     ✓ Set up automated world backups
 
 Monitoring and Maintenance:
+    ✓ Add basic CloudWatch logging
     ☐ Set up CloudWatch alarms
         ☐ CPU Utilization
         ☐ Memory Usage
         ☐ Network Traffic
         ☐ Disk Usage
+    ☐ Set up detailed monitoring metrics
     ☐ Configure logging
         ☐ System logs
         ☐ Application logs
         ☐ Access logs
+    ☐ Configure CloudWatch dashboards
     ☐ Create health checks
     ☐ Implement auto-recovery
     ☐ Set up performance metrics dashboard
+    ☐ Implement automated backup monitoring
 
 Cost Optimization:
     ☐ Implement instance scheduling

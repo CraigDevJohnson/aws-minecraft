@@ -14,11 +14,66 @@ log_message() {
     echo "[$(date)] $1" | tee -a "$MAIN_LOG"
 }
 
+# Verify required tools and dependencies
+check_dependencies() {
+    local missing_deps=0
+    local required_tools=("aws" "jq" "netstat" "systemctl")
+    
+    for tool in "${required_tools[@]}"; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            log_message "❌ Required tool not found: $tool"
+            missing_deps=$((missing_deps + 1))
+        fi
+    done
+    
+    return $missing_deps
+}
+
+# Verify script locations and permissions
+verify_scripts() {
+    local script_dir="/opt/minecraft/test"
+    local missing_scripts=0
+    local required_scripts=("test_server.sh" "test_backup.sh")
+    
+    for script in "${required_scripts[@]}"; do
+        local script_path="$script_dir/$script"
+        if [ ! -f "$script_path" ]; then
+            log_message "❌ Required script not found: $script"
+            missing_scripts=$((missing_scripts + 1))
+            continue
+        fi
+        
+        if [ ! -x "$script_path" ]; then
+            log_message "❌ Script not executable: $script"
+            if ! chmod +x "$script_path"; then
+                log_message "Failed to set executable permission on $script"
+                missing_scripts=$((missing_scripts + 1))
+            fi
+        fi
+    done
+    
+    return $missing_scripts
+}
+
 # Clean up previous test results
 rm -f "$LOG_DIR"/*_validation_success
 rm -f "$LOG_DIR"/validation_status.json
 
 log_message "Starting main validation process..."
+
+# Check dependencies first
+log_message "Checking dependencies..."
+if ! check_dependencies; then
+    log_message "❌ Missing required dependencies. Please check the log for details."
+    exit 1
+fi
+
+# Verify scripts
+log_message "Verifying test scripts..."
+if ! verify_scripts; then
+    log_message "❌ Missing or invalid test scripts. Please check the log for details."
+    exit 1
+fi
 
 # Test server stop/start functionality
 test_server_restart() {
@@ -43,13 +98,13 @@ test_server_restart() {
             return 0
         fi
         sleep 5
-    end
+    done
     
     log_message "❌ Server failed to restart"
     return 1
 }
 
-# Run comprehensive server tests
+# Run comprehensive server tests with improved error handling
 run_server_tests() {
     local attempt=$1
     log_message "Running server tests (attempt $attempt/$MAX_RETRIES)..."
@@ -57,12 +112,22 @@ run_server_tests() {
     # Run test scripts
     TEST_SERVER_SCRIPT="/opt/minecraft/test/test_server.sh"
     if [ ! -x "$TEST_SERVER_SCRIPT" ]; then
-        chmod +x "$TEST_SERVER_SCRIPT"
+        if ! chmod +x "$TEST_SERVER_SCRIPT"; then
+            log_message "❌ Failed to set executable permissions on test_server.sh"
+            return 1
+        fi
     fi
     
-    if $TEST_SERVER_SCRIPT; then
-        return 0
-    else
+    # Verify script exists before running
+    if [ ! -f "$TEST_SERVER_SCRIPT" ]; then
+        log_message "❌ test_server.sh not found at $TEST_SERVER_SCRIPT"
+        return 1
+    fi
+    
+    # Run with error capture
+    if ! output=$($TEST_SERVER_SCRIPT 2>&1); then
+        log_message "❌ test_server.sh failed with output:"
+        log_message "$output"
         if [ $attempt -lt $MAX_RETRIES ]; then
             log_message "Server tests failed, restarting server and retrying..."
             test_server_restart
@@ -73,6 +138,9 @@ run_server_tests() {
             return 1
         fi
     fi
+    
+    log_message "✓ Server tests completed successfully"
+    return 0
 }
 
 # Run comprehensive backup tests

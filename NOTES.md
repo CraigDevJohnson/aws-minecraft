@@ -134,7 +134,7 @@ This project aims to deploy a Minecraft server on AWS using Terraform. The infra
 ## Continuation Prompt
 To continue where we left off, use this prompt:
 
-"I'd like to continue working on the Minecraft server deployment. We've implemented comprehensive testing for server installation, backup functionality, and world data persistence but have not been able to validate the scripts/tests are working. Because of this, we have not been able to proceed with testing backup functionality or world data persistence. We need to get the test_server.sh to work first. 
+"I'd like to continue working on the Minecraft server deployment. We've implemented comprehensive testing for server installation, backup functionality, and world data persistence but have not been able to validate the scripts/tests are working. Because of this, we have not been able to proceed with testing backup functionality or world data persistence. We need to get the test_server.sh to work first. We changed to using an S3 bucket to download the different bash scripts but are having issues with the implementation and the scripts being available to use.
 
 Once we've compelted the above, we need to:
 1. Implement load testing scenarios
@@ -162,26 +162,3 @@ Current focus areas:
 - Backup encryption with KMS
 - Plugin management system"
 
-As far as the current error with the scripts. I can see they are not handling variables right when being imported to the user_data.sh. See the install_bedrock.sh vs the imported script I pulled from the server:
-echo "[Sun Feb 16 07:42:41 UTC 2025] Fetching download URL from Minecraft website..."
-while [  -lt  ]; do
-    # Try to download from the official preview page
-    DOWNLOAD_URL=https://www.minecraft.net/bedrockdedicatedserver/bin-linux/bedrock-server-1.21.60.10.zip
-    if [ ! -z "" ]; then
-        echo "[Sun Feb 16 07:42:42 UTC 2025] Found download URL: "
-        if wget -U "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; BEDROCK-UPDATER)"  -O bedrock-server.zip; then
-            echo "[Sun Feb 16 07:42:42 UTC 2025] Download successful"
-            break
-        fi
-    fi
-
-    # Fallback to direct download from known URL pattern
-    FALLBACK_URL="https://www.minecraft.net/bedrockdedicatedserver/bin-linux/bedrock-server-1.21.60.10.zip"
-    echo "[Sun Feb 16 07:42:42 UTC 2025] Trying fallback URL: "
-    if wget -U "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; BEDROCK-UPDATER)"  -O bedrock-server.zip; then
-        echo "[Sun Feb 16 07:42:42 UTC 2025] Fallback download successful"
-        break
-    fi
-
-
-    Do not start to code or anything with a solution until we've gone over together and I agree with your solution.

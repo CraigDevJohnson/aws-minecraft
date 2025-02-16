@@ -13,7 +13,7 @@ locals {
       port     = 19132
       protocol = "tcp"
     }
-  ] : [
+    ] : [
     {
       port     = 25565
       protocol = "tcp"
