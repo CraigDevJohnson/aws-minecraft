@@ -1,8 +1,12 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
+# Constants
+IMDS_ENDPOINT=${1:-"169.254.169.254"}
+IMDS_TOKEN_TTL=${2:-"21600"}
 LOG_DIR="/var/log/minecraft"
 MAIN_LOG="$LOG_DIR/main_validation.log"
+SCRIPT_DIR="/opt/minecraft/test"
 MAX_RETRIES=3
 
 # Ensure log directory exists with proper permissions
@@ -11,253 +15,164 @@ sudo chown -R ubuntu:ubuntu "$LOG_DIR"
 sudo chmod 755 "$LOG_DIR"
 
 log_message() {
-    echo "[$(date)] $1" | tee -a "$MAIN_LOG"
+    local level="$1"
+    local message="$2"
+    echo "[$(date)] [$level] $message" | tee -a "$MAIN_LOG"
 }
 
-# Verify required tools and dependencies
-check_dependencies() {
-    local missing_deps=0
-    local required_tools=("aws" "jq" "netstat" "systemctl")
+# Verify script integrity
+verify_script_integrity() {
+    local script="$1"
     
-    for tool in "${required_tools[@]}"; do
-        if ! command -v "$tool" >/dev/null 2>&1; then
-            log_message "❌ Required tool not found: $tool"
-            missing_deps=$((missing_deps + 1))
-        fi
-    done
-    
-    return $missing_deps
-}
-
-# Verify script locations and permissions
-verify_scripts() {
-    local script_dir="/opt/minecraft/test"
-    local missing_scripts=0
-    local required_scripts=("test_server.sh" "test_backup.sh")
-    
-    for script in "${required_scripts[@]}"; do
-        local script_path="$script_dir/$script"
-        if [ ! -f "$script_path" ]; then
-            log_message "❌ Required script not found: $script"
-            missing_scripts=$((missing_scripts + 1))
-            continue
-        fi
-        
-        if [ ! -x "$script_path" ]; then
-            log_message "❌ Script not executable: $script"
-            if ! chmod +x "$script_path"; then
-                log_message "Failed to set executable permission on $script"
-                missing_scripts=$((missing_scripts + 1))
-            fi
-        fi
-    done
-    
-    return $missing_scripts
-}
-
-# Clean up previous test results
-rm -f "$LOG_DIR"/*_validation_success
-rm -f "$LOG_DIR"/validation_status.json
-
-log_message "Starting main validation process..."
-
-# Check dependencies first
-log_message "Checking dependencies..."
-if ! check_dependencies; then
-    log_message "❌ Missing required dependencies. Please check the log for details."
-    exit 1
-fi
-
-# Verify scripts
-log_message "Verifying test scripts..."
-if ! verify_scripts; then
-    log_message "❌ Missing or invalid test scripts. Please check the log for details."
-    exit 1
-fi
-
-# Test server stop/start functionality
-test_server_restart() {
-    log_message "Testing server stop/start functionality..."
-    
-    # Stop server
-    sudo systemctl stop minecraft
-    sleep 10
-    
-    if systemctl is-active minecraft >/dev/null 2>&1; then
-        log_message "❌ Server failed to stop"
+    if [ ! -f "$script" ]; then
+        log_message "ERROR" "Script not found: $script"
         return 1
     fi
     
-    # Start server
-    sudo systemctl start minecraft
-    
-    # Wait for server to start (up to 60 seconds)
-    for i in {1..12}; do
-        if systemctl is-active minecraft >/dev/null 2>&1; then
-            log_message "✓ Server successfully restarted"
-            return 0
-        fi
-        sleep 5
-    done
-    
-    log_message "❌ Server failed to restart"
-    return 1
-}
-
-# Run comprehensive server tests with improved error handling
-run_server_tests() {
-    local attempt=$1
-    log_message "Running server tests (attempt $attempt/$MAX_RETRIES)..."
-    
-    # Run test scripts
-    TEST_SERVER_SCRIPT="/opt/minecraft/test/test_server.sh"
-    if [ ! -x "$TEST_SERVER_SCRIPT" ]; then
-        if ! chmod +x "$TEST_SERVER_SCRIPT"; then
-            log_message "❌ Failed to set executable permissions on test_server.sh"
+    if [ ! -x "$script" ]; then
+        log_message "WARNING" "Script not executable: $script, attempting to fix"
+        chmod +x "$script" || {
+            log_message "ERROR" "Failed to make script executable: $script"
             return 1
-        fi
+        }
     fi
     
-    # Verify script exists before running
-    if [ ! -f "$TEST_SERVER_SCRIPT" ]; then
-        log_message "❌ test_server.sh not found at $TEST_SERVER_SCRIPT"
+    # Check for script syntax errors
+    bash -n "$script" 2>/dev/null || {
+        log_message "ERROR" "Script contains syntax errors: $script"
         return 1
-    fi
+    }
     
-    # Run with error capture
-    if ! output=$($TEST_SERVER_SCRIPT 2>&1); then
-        log_message "❌ test_server.sh failed with output:"
-        log_message "$output"
-        if [ $attempt -lt $MAX_RETRIES ]; then
-            log_message "Server tests failed, restarting server and retrying..."
-            test_server_restart
-            sleep 30
-            return 1
-        else
-            log_message "❌ Server tests failed after $MAX_RETRIES attempts"
-            return 1
-        fi
-    fi
-    
-    log_message "✓ Server tests completed successfully"
     return 0
 }
 
-# Run comprehensive backup tests
-run_backup_tests() {
-    local attempt=$1
-    log_message "Running backup tests (attempt $attempt/$MAX_RETRIES)..."
+# Verify all required scripts
+verify_all_scripts() {
+    local failed=0
+    local required_scripts=(
+        "$SCRIPT_DIR/test_server.sh"
+        "$SCRIPT_DIR/test_backup.sh"
+    )
     
-    TEST_BACKUP_SCRIPT="/opt/minecraft/test/test_backup.sh"
-    if [ ! -x "$TEST_BACKUP_SCRIPT" ]; then
-        chmod +x "$TEST_BACKUP_SCRIPT"
-    fi
+    for script in "${required_scripts[@]}"; do
+        log_message "INFO" "Verifying script: $script"
+        if ! verify_script_integrity "$script"; then
+            ((failed++))
+        fi
+    done
     
-    if $TEST_BACKUP_SCRIPT; then
-        return 0
+    return "$failed"
+}
+
+# Get IMDSv2 token
+get_imds_token() {
+    curl -X PUT "http://${IMDS_ENDPOINT}/latest/api/token" \
+        -H "X-aws-ec2-metadata-token-ttl-seconds: ${IMDS_TOKEN_TTL}" \
+        --connect-timeout 1 \
+        --retry 3 \
+        --silent
+}
+
+# Initialize validation environment
+initialize_environment() {
+    log_message "INFO" "Initializing validation environment"
+    
+    # Check system dependencies
+    local deps=(aws jq curl systemctl)
+    local missing=0
+    
+    for dep in "${deps[@]}"; do
+        if ! command -v "$dep" >/dev/null 2>&1; then
+            log_message "ERROR" "Missing required dependency: $dep"
+            ((missing++))
+        fi
+    done
+    # Get IMDSv2 token and check metadata service
+    local token
+    if ! token=$(get_imds_token); then
+        log_message "ERROR" "Failed to get IMDSv2 token"
+        ((missing++))
     else
-        if [ $attempt -lt $MAX_RETRIES ]; then
-            log_message "Backup tests failed, retrying..."
-            sleep 5
-            return 1
-        else
-            log_message "❌ Backup tests failed after $MAX_RETRIES attempts"
-            return 1
+        if ! curl -H "X-aws-ec2-metadata-token: $token" \
+            -sf --connect-timeout 1 \
+            "http://${IMDS_ENDPOINT}/latest/meta-data/" >/dev/null; then
+            log_message "ERROR" "Cannot access instance metadata service at ${IMDS_ENDPOINT}"
+            ((missing++))
         fi
     fi
-}
-
-# Main test execution with retries
-SERVER_STATUS=1
-BACKUP_STATUS=1
-PERSISTENCE_STATUS=1
-
-# Test server functionality
-for i in $(seq 1 "$MAX_RETRIES"); do
-    if run_server_tests "$i"; then
-        SERVER_STATUS=0
-        break
-    fi
-done
-
-# Test backup functionality
-for i in $(seq 1 "$MAX_RETRIES"); do
-    if run_backup_tests "$i"; then
-        BACKUP_STATUS=0
-        break
-    fi
-done
-
-# Test world data persistence with improved error handling
-log_message "Testing world data persistence..."
-TEST_FILE="/mnt/minecraft_data/worlds/persistence_test_$(date +%s).txt"
-
-for i in $(seq 1 "$MAX_RETRIES"); do
-    log_message "Persistence test attempt $i/$MAX_RETRIES..."
     
+    # Check filesystem access with better error reporting
+    local dirs=("/opt/minecraft" "/mnt/minecraft_data" "$LOG_DIR")
+    for dir in "${dirs[@]}"; do
+        if [ ! -d "$dir" ]; then
+            log_message "ERROR" "Directory does not exist: $dir"
+            ((missing++))
+            continue
+        fi
+        
+        if [ ! -w "$dir" ]; then
+            # Get more details about the directory
+            log_message "ERROR" "Cannot write to directory: $dir"
+            log_message "INFO" "Directory permissions: $(ls -ld $dir)"
+            log_message "INFO" "Current user: $(whoami)"
+            log_message "INFO" "Mount status: $(mount | grep $dir || echo 'not mounted')"
+            ((missing++))
+        fi
+    done
+    
+    # If /mnt/minecraft_data is not mounted, try to mount it
     if ! mountpoint -q /mnt/minecraft_data; then
-        log_message "❌ Data volume not mounted, retrying..."
-        sleep 5
-        continue
-    fi
-    
-    if echo "Test data $(date)" > "${TEST_FILE}" 2>/dev/null; then
-        sync
-        sleep 2
-        if [ -f "${TEST_FILE}" ] && grep -q "Test data" "${TEST_FILE}"; then
-            log_message "✓ World data persistence test passed (attempt ${i})"
-            PERSISTENCE_STATUS=0
-            rm -f "${TEST_FILE}"
-            break
+        log_message "WARNING" "Minecraft data directory not mounted, attempting to mount..."
+        if sudo mount /mnt/minecraft_data; then
+            log_message "INFO" "Successfully mounted minecraft data directory"
+        else
+            log_message "ERROR" "Failed to mount minecraft data directory"
+            ((missing++))
         fi
     fi
     
-    log_message "Persistence test failed, retrying..."
-    sleep 5
-done
-
-# Write detailed status with improved error reporting
-cat > "$LOG_DIR/validation_status.json" <<EOF
-{
-    "server_status": $SERVER_STATUS,
-    "backup_status": $BACKUP_STATUS,
-    "persistence_status": $PERSISTENCE_STATUS,
-    "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-    "details": {
-        "server_log": "$(tail -n 10 /var/log/minecraft/server.log 2>/dev/null || echo 'No server log')",
-        "validation_log": "$(tail -n 10 $MAIN_LOG 2>/dev/null || echo 'No validation log')",
-        "system_status": {
-            "disk_space": "$(df -h /mnt/minecraft_data 2>/dev/null || echo 'Unable to check disk space')",
-            "memory_usage": "$(free -h 2>/dev/null || echo 'Unable to check memory')",
-            "service_status": "$(systemctl status minecraft.service 2>/dev/null || echo 'Unable to check service')"
-        }
-    }
+    return "$missing"
 }
-EOF
 
-# Final results with enhanced reporting
-log_message "Final Test Results:"
-log_message "Server Tests: $([ $SERVER_STATUS -eq 0 ] && echo '✅ Passed' || echo '❌ Failed')"
-log_message "Backup Tests: $([ $BACKUP_STATUS -eq 0 ] && echo '✅ Passed' || echo '❌ Failed')"
-log_message "Persistence: $([ $PERSISTENCE_STATUS -eq 0 ] && echo '✅ Passed' || echo '❌ Failed')"
+# Main execution
+main() {
+    log_message "INFO" "Starting validation suite"
+    
+    # Initialize environment
+    if ! initialize_environment; then
+        log_message "ERROR" "Environment initialization failed"
+        return 1
+    fi
+    
+    # Verify scripts
+    if ! verify_all_scripts; then
+        log_message "ERROR" "Script verification failed"
+        return 1
+    fi
+    
+    # Run server tests
+    log_message "INFO" "Running server tests"
+    if ! "$SCRIPT_DIR/test_server.sh"; then
+        log_message "ERROR" "Server tests failed"
+        return 1
+    fi
+    
+    # Run backup tests
+    log_message "INFO" "Running backup tests"
+    if ! "$SCRIPT_DIR/test_backup.sh"; then
+        log_message "ERROR" "Backup tests failed"
+        return 1
+    fi
+    
+    log_message "SUCCESS" "All validation tests completed successfully"
+    touch "$LOG_DIR/validation_success"
+    return 0
+}
 
-# Overall validation result
-if [ $SERVER_STATUS -eq 0 ] && [ $BACKUP_STATUS -eq 0 ] && [ $PERSISTENCE_STATUS -eq 0 ]; then
-    log_message "✅ All validation tests completed successfully!"
-    touch "$LOG_DIR/full_validation_success"
+# Run main function with error handling
+if main; then
     exit 0
 else
-    log_message "❌ Some tests failed. Check logs for details:"
-    log_message "Main log: $MAIN_LOG"
-    log_message "Server log: /var/log/minecraft/server.log"
-    log_message "Status file: $LOG_DIR/validation_status.json"
-    
-    # Print relevant sections of logs for debugging
-    log_message "Recent server log entries:"
-    tail -n 20 /var/log/minecraft/server.log 2>/dev/null || echo "No server log available"
-    
-    log_message "System status:"
-    systemctl status minecraft.service
-    
+    log_message "ERROR" "Validation suite failed. Check $MAIN_LOG for details"
     exit 1
 fi

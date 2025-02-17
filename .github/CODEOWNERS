@@ -1,15 +1,15 @@
 # Infrastructure changes
-*.tf @infrastructure-team
+*.tf @CraigDevJohnson
 
 # Server installation scripts
-modules/compute/scripts/ @ops-team
+modules/compute/scripts/ @CraigDevJohnson
 
 # Security configurations
-modules/security/ @security-team
-SECURITY.md @security-team
+modules/security/ @CraigDevJohnson
+SECURITY.md @CraigDevJohnson
 
 # Documentation
-*.md @tech-writers
+*.md @CraigDevJohnson
 
 # GitHub Actions
-.github/workflows/ @devops-team
+.github/workflows/ @CraigDevJohnson

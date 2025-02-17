@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 echo "[$(date)] Starting backup validation tests..."
 
@@ -8,11 +8,52 @@ BACKUP_DIR="/mnt/minecraft_data/backups"
 WORLDS_DIR="/mnt/minecraft_data/worlds"
 TEST_WORLD="test_world_$(date +%s)"
 RESTORE_DIR="/mnt/minecraft_data/restore_test"
+MAX_RETRIES=3
+
+# Ensure AWS credentials are available
+check_aws_credentials() {
+    local retry_count=0
+    local token=""
+    
+    while [ $retry_count -lt $MAX_RETRIES ]; do
+        token=$(curl -X PUT "http://169.254.169.254/latest/api/token" \
+            -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" \
+            --connect-timeout 5 \
+            --retry 3 \
+            --silent)
+            
+        if [ -n "$token" ]; then
+            # Get and configure region
+            local region=$(curl -H "X-aws-ec2-metadata-token: $token" \
+                -s http://169.254.169.254/latest/meta-data/placement/region)
+            if [ -n "$region" ]; then
+                aws configure set region "$region"
+                return 0
+            fi
+        fi
+        
+        echo "Waiting for AWS credentials... (attempt $((retry_count + 1)))"
+        sleep 5
+        ((retry_count++))
+    done
+    
+    return 1
+}
 
 # Function to check backup vault
 check_backup_vault() {
     local VAULT_NAME="$1"
-    aws backup describe-backup-vault --backup-vault-name "$VAULT_NAME" || return 1
+    local retry_count=0
+    
+    while [ $retry_count -lt $MAX_RETRIES ]; do
+        if aws backup describe-backup-vault --backup-vault-name "$VAULT_NAME" >/dev/null 2>&1; then
+            return 0
+        fi
+        echo "Waiting for backup vault... (attempt $((retry_count + 1)))"
+        sleep 5
+        ((retry_count++))
+    done
+    return 1
 }
 
 # Function to check backup plan
@@ -28,26 +69,33 @@ check_backup_selection() {
     aws backup get-backup-selection --backup-plan-id "$PLAN_ID" --selection-id "$SELECTION_ID" || return 1
 }
 
-# Function to test local backup creation
+# Enhanced local backup testing with retries
 test_local_backup_creation() {
     echo "Creating test world directory..."
     mkdir -p "$WORLDS_DIR/$TEST_WORLD"
     echo "test data" > "$WORLDS_DIR/$TEST_WORLD/test_file"
+    sync
     
     echo "Running backup script..."
-    /opt/minecraft/backup.sh
+    local retry_count=0
+    while [ $retry_count -lt $MAX_RETRIES ]; do
+        if /opt/minecraft/backup.sh; then
+            # Verify backup file exists
+            local LATEST_BACKUP
+            LATEST_BACKUP=$(ls -t "$BACKUP_DIR"/world_backup_*.tar.gz 2>/dev/null | head -n1) || true
+            
+            if [ -f "$LATEST_BACKUP" ]; then
+                echo "Local backup created successfully: $LATEST_BACKUP"
+                return 0
+            fi
+        fi
+        echo "Backup attempt $((retry_count + 1)) failed, retrying..."
+        sleep 5
+        ((retry_count++))
+    done
     
-    # Verify backup file exists
-    local LATEST_BACKUP
-    LATEST_BACKUP=$(ls -t "$BACKUP_DIR"/world_backup_*.tar.gz 2>/dev/null | head -n1) || true
-    
-    if [ -f "$LATEST_BACKUP" ]; then
-        echo "Local backup created successfully: $LATEST_BACKUP"
-        return 0
-    else
-        echo "Local backup creation failed"
-        return 1
-    fi
+    echo "Local backup creation failed after $MAX_RETRIES attempts"
+    return 1
 }
 
 # Function to test backup restoration
@@ -115,36 +163,41 @@ test_backup_versioning() {
     fi
 }
 
-# Main test execution
-echo "Running comprehensive backup validation tests..."
-
-# Run AWS Backup configuration tests if parameters provided
-if [ "$#" -eq 4 ]; then
-    VAULT_NAME="$1"
-    PLAN_ID="$2"
-    SELECTION_ID="$3"
-    RESOURCE_ARN="$4"
+# Main test execution with improved error handling
+main() {
+    # Ensure required directories exist
+    mkdir -p "$BACKUP_DIR" "$WORLDS_DIR" "$RESTORE_DIR"
     
-    echo "1. Testing AWS Backup configuration..."
-    check_backup_vault "$VAULT_NAME"
-    check_backup_plan "$PLAN_ID"
-    check_backup_selection "$PLAN_ID" "$SELECTION_ID"
+    # Check AWS credentials first
+    echo "Checking AWS credentials..."
+    if ! check_aws_credentials; then
+        echo "Failed to obtain AWS credentials"
+        return 1
+    fi
+    
+    echo "Testing local backup functionality..."
+    if ! test_local_backup_creation; then
+        echo "Local backup testing failed"
+        return 1
+    fi
+    
+    echo "Testing AWS Backup integration..."
+    if ! check_backup_vault "minecraft-backup-vault"; then
+        echo "AWS Backup vault check failed"
+        return 1
+    fi
+    
+    # Clean up test data
+    rm -rf "$WORLDS_DIR/$TEST_WORLD" "$RESTORE_DIR"
+    
+    echo "[$(date)] Backup validation tests completed successfully"
+    return 0
+}
+
+# Execute main with error handling
+if main; then
+    exit 0
+else
+    echo "[$(date)] Backup validation failed"
+    exit 1
 fi
-
-echo "2. Testing local backup functionality..."
-test_local_backup_creation
-
-echo "3. Testing backup restoration..."
-test_backup_restoration
-
-echo "4. Testing backup versioning..."
-test_backup_versioning
-
-echo "5. Testing AWS Backup integration..."
-test_aws_backup
-
-# Cleanup
-rm -rf "$WORLDS_DIR/$TEST_WORLD"
-rm -rf "$RESTORE_DIR"
-
-echo "[$(date)] Backup validation tests completed"

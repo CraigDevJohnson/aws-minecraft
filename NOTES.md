@@ -134,7 +134,7 @@ This project aims to deploy a Minecraft server on AWS using Terraform. The infra
 ## Continuation Prompt
 To continue where we left off, use this prompt:
 
-"I'd like to continue working on the Minecraft server deployment. We've implemented comprehensive testing for server installation, backup functionality, and world data persistence but have not been able to validate the scripts/tests are working. Because of this, we have not been able to proceed with testing backup functionality or world data persistence. We need to get the test_server.sh to work first. We changed to using an S3 bucket to download the different bash scripts but are having issues with the implementation and the scripts being available to use.
+"I'd like to continue working on the Minecraft server deployment. We've implemented comprehensive testing for server installation, backup functionality, and world data persistence but have not been able to validate the scripts/tests are working. Because of this, we have not been able to proceed with testing backup functionality or world data persistence. We need to get the validate_all.sh, test_server.sh, and test_backup.sh to work first. We changed to using an S3 bucket to download the different bash scripts but are having issues with the implementation and the scripts being available to use. Right now, nothing is deployed in AWS so we can make any obvious configuration changes before proceeding with a test to get errors if you'd like.
 
 Once we've compelted the above, we need to:
 1. Implement load testing scenarios

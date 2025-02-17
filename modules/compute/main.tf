@@ -16,16 +16,21 @@ data "aws_ami" "ubuntu" {
 locals {
   script_path = var.server_type == "bedrock" ? "${path.module}/scripts/install_bedrock.sh" : "${path.module}/scripts/install_java.sh"
 
+  # Add hash suffix to script names for versioning
+  script_names = {
+    "install.sh"      = "install-${md5(file(local.script_path))}.sh"
+    "test_server.sh"  = "test_server-${md5(file("${path.module}/scripts/test_server.sh"))}.sh"
+    "validate_all.sh" = "validate_all-${md5(file("${path.module}/scripts/validate_all.sh"))}.sh"
+    "test_backup.sh"  = "test_backup-${md5(file("${path.module}/scripts/../../storage/scripts/test_backup.sh"))}.sh"
+  }
+
   # Function to convert Windows line endings to Unix
-  convert_line_endings = { for k, v in {
+  script_content = { for k, v in {
     "install.sh"      = file(local.script_path)
     "test_server.sh"  = file("${path.module}/scripts/test_server.sh")
     "validate_all.sh" = file("${path.module}/scripts/validate_all.sh")
     "test_backup.sh"  = file("${path.module}/scripts/../../storage/scripts/test_backup.sh")
-  } : k => replace(v, "/\r\n/", "\n") }
-
-  # Base64 encode the script content to preserve line endings
-  script_content = { for k, v in local.convert_line_endings : k => base64encode(v) }
+  } : k => base64encode(replace(v, "\r\n", "\n")) }
 }
 
 # Create S3 bucket for scripts with minimal configuration
@@ -70,23 +75,25 @@ resource "aws_s3_bucket_lifecycle_configuration" "scripts" {
   }
 }
 
-# Upload scripts to S3 with proper encoding
+# Upload scripts to S3 with proper encoding and metadata
 resource "aws_s3_object" "test_scripts" {
   for_each = local.script_content
 
   bucket         = aws_s3_bucket.scripts.id
-  key            = each.key
+  key            = local.script_names[each.key]  # Use versioned filename
   content_base64 = each.value
   content_type   = "text/x-shellscript"
-  etag           = md5(each.value)
-  force_destroy  = true
+  etag          = md5(each.value)
+  force_destroy = true
 
   # Add server-side encryption
   server_side_encryption = "AES256"
 
-  # Ensure proper content encoding
+  # Ensure proper content encoding and permissions
   metadata = {
     "content-transfer-encoding" = "base64"
+    "permissions" = "0755"  # Ensure scripts are executable
+    "original-filename" = each.key
   }
 }
 
@@ -183,6 +190,15 @@ resource "aws_iam_role_policy" "minecraft_server" {
           "logs:DescribeLogStreams"
         ]
         Resource = "arn:aws:logs:*:*:*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeVolumes",
+          "ec2:AttachVolume",
+          "ec2:DetachVolume"
+        ]
+        Resource = "*"
       }
     ]
   })
@@ -225,16 +241,20 @@ resource "aws_instance" "minecraft" {
     volume_type = "gp3"
   }
 
-  user_data = templatefile("${path.module}/scripts/user_data.sh", {
-    server_type = var.server_type
-    bucket_name = aws_s3_bucket.scripts.id
-    install_key = "install.sh"
-    script_keys_map = jsonencode({
-      test_server  = "test_server.sh"
-      validate_all = "validate_all.sh"
-      test_backup  = "test_backup.sh"
-    })
-  })
+  user_data = templatefile(
+    "${path.module}/scripts/user_data.sh",
+    {
+      server_type        = var.server_type
+      bucket_name        = aws_s3_bucket.scripts.id
+      install_key        = local.script_names["install.sh"]
+      test_server_script = local.script_names["test_server.sh"]
+      validate_script    = local.script_names["validate_all.sh"]
+      backup_script      = local.script_names["test_backup.sh"]
+      imds_endpoint      = "169.254.169.254"
+      imds_token_ttl     = "21600"
+    }
+  )
+
   user_data_replace_on_change = true
 
   metadata_options {
