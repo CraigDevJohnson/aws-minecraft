@@ -1,3 +1,13 @@
+terraform {
+  required_version = ">= 1.5.0"
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
 data "aws_ami" "ubuntu" {
   most_recent = true
   owners      = ["099720109477"] // Canonical's AWS account ID
@@ -18,18 +28,22 @@ locals {
 
   # Add hash suffix to script names for versioning
   script_names = {
-    "install.sh"      = "install-${md5(file(local.script_path))}.sh"
-    "test_server.sh"  = "test_server-${md5(file("${path.module}/scripts/test_server.sh"))}.sh"
-    "validate_all.sh" = "validate_all-${md5(file("${path.module}/scripts/validate_all.sh"))}.sh"
-    "test_backup.sh"  = "test_backup-${md5(file("${path.module}/scripts/../../storage/scripts/test_backup.sh"))}.sh"
+    "install.sh"           = "install-${md5(file(local.script_path))}.sh"
+    "run_server.sh"        = "run_server-${md5(file("${path.module}/scripts/run_server.sh"))}.sh"
+    "world_backup.sh"      = "world_backup-${md5(file("${path.module}/../storage/scripts/world_backup.sh"))}.sh"
+    "validate_all.sh"      = "validate_all-${md5(file("${path.module}/scripts/validate_all.sh"))}.sh"
+    "test_server.sh"       = "test_server-${md5(file("${path.module}/scripts/test_server.sh"))}.sh"
+    "test_world_backup.sh" = "test_world_backup-${md5(file("${path.module}/../storage/scripts/test_world_backup.sh"))}.sh"
   }
 
   # Function to convert Windows line endings to Unix
   script_content = { for k, v in {
-    "install.sh"      = file(local.script_path)
-    "test_server.sh"  = file("${path.module}/scripts/test_server.sh")
-    "validate_all.sh" = file("${path.module}/scripts/validate_all.sh")
-    "test_backup.sh"  = file("${path.module}/scripts/../../storage/scripts/test_backup.sh")
+    "install.sh"           = file(local.script_path)
+    "run_server.sh"        = file("${path.module}/scripts/run_server.sh")
+    "world_backup.sh"      = file("${path.module}/../storage/scripts/world_backup.sh")
+    "validate_all.sh"      = file("${path.module}/scripts/validate_all.sh")
+    "test_server.sh"       = file("${path.module}/scripts/test_server.sh")
+    "test_world_backup.sh" = file("${path.module}/../storage/scripts/test_world_backup.sh")
   } : k => base64encode(replace(v, "\r\n", "\n")) }
 }
 
@@ -252,14 +266,16 @@ resource "aws_instance" "minecraft" {
   user_data = templatefile(
     "${path.module}/scripts/user_data.sh",
     {
-      server_type        = var.server_type
-      bucket_name        = aws_s3_bucket.scripts.id
-      install_key        = local.script_names["install.sh"]
-      test_server_script = local.script_names["test_server.sh"]
-      validate_script    = local.script_names["validate_all.sh"]
-      backup_script      = local.script_names["test_backup.sh"]
-      imds_endpoint      = "169.254.169.254"
-      imds_token_ttl     = "21600"
+      server_type              = var.server_type
+      bucket_name              = aws_s3_bucket.scripts.id
+      install_key              = local.script_names["install.sh"]
+      run_server_script        = local.script_names["run_server.sh"]
+      world_backup_script      = local.script_names["world_backup.sh"]
+      validate_script          = local.script_names["validate_all.sh"]
+      test_server_script       = local.script_names["test_server.sh"]
+      test_world_backup_script = local.script_names["test_world_backup.sh"]
+      imds_endpoint            = "169.254.169.254"
+      imds_token_ttl           = "21600"
     }
   )
 

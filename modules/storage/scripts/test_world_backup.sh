@@ -1,8 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-
-
 # Configuration
 BACKUP_DIR="/mnt/minecraft_data/backups"
 WORLDS_DIR="/mnt/minecraft_data/worlds"
@@ -10,13 +8,15 @@ TEST_WORLD="test_world_$(date +%s)"
 RESTORE_DIR="/mnt/minecraft_data/restore_test"
 MAX_RETRIES=3
 LOG_DIR="/var/log/minecraft"
-BACKUP_TEST_LOG="$LOG_DIR/backup_test.log"
-
+BACKUP_TEST_LOG="$LOG_DIR/test_world_backup.log"
+IMDS_ENDPOINT=${1:-"169.254.169.254"}
+IMDS_TOKEN_TTL=${2:-"21600"}
+DEBUG=true
 # Ensure log directory exists with proper permissions
 if ! mkdir -p "$LOG_DIR" 2>/dev/null; then
-    echo "[$(date)] [WARNING] Could not create log directory. Logging to /tmp/backup_test.log"
+    echo "[$(date)] [WARNING] Could not create log directory. Logging to /tmp/test_world_backup.log"
     LOG_DIR="/tmp"
-    BACKUP_TEST_LOG="$LOG_DIR/backup_test.log"
+    BACKUP_TEST_LOG="$LOG_DIR/test_world_backup.log"
 fi
 
 if ! touch "$BACKUP_TEST_LOG" 2>/dev/null; then
@@ -41,30 +41,33 @@ debug_message() {
     fi
 }
 
-log_message "INFO" "Starting backup validation tests..."
-
+log_message "INFO" "Starting world backup validation tests..."
 # Environment configuration with fallbacks
+log_message "INFO" "Checking environment configuration..."
 ENVIRONMENT="${MINECRAFT_ENVIRONMENT:-dev}"
-VAULT_NAME="minecraft-${ENVIRONMENT}-backup-vault"
-BACKUP_ROLE_NAME="minecraft-${ENVIRONMENT}-backup-role"
-PLAN_NAME="minecraft-${ENVIRONMENT}-backup-plan"
-SELECTION_NAME="minecraft-${ENVIRONMENT}-backup-selection"
+debug_message "Initial environment value: $ENVIRONMENT"
 
 # Function to validate environment
 validate_environment() {
     local env="$1"
     case "$env" in
-        dev|stage|prod) return 0 ;;
+        dev|prod) return 0 ;;
         *)
-            log_message "ERROR" "Invalid environment '$env'. Must be one of: dev, stage, prod"
+            log_message "ERROR" "Invalid environment '$env'. Must be one of: dev, prod"
             return 1
             ;;
     esac
 }
 
 # Validate environment before proceeding
-if ! validate_environment "$ENVIRONMENT"; then
-    log_message "INFO" "Defaulting to 'dev' environment"
+if validate_environment "$ENVIRONMENT"; then
+    debug_message "Using initial environment: $ENVIRONMENT"
+    VAULT_NAME="minecraft-${ENVIRONMENT}-backup-vault"
+    BACKUP_ROLE_NAME="minecraft-${ENVIRONMENT}-backup-role"
+    PLAN_NAME="minecraft-${ENVIRONMENT}-backup-plan"
+    SELECTION_NAME="minecraft-${ENVIRONMENT}-backup-selection"
+else
+    debug_message "Defaulting to 'dev' environment"
     ENVIRONMENT="dev"
     VAULT_NAME="minecraft-dev-backup-vault"
     BACKUP_ROLE_NAME="minecraft-dev-backup-role"
@@ -81,30 +84,31 @@ log_message "INFO" "Using backup selection: $SELECTION_NAME"
 # function to check AWS credentials are available
 check_aws_credentials() {
     local retry_count=0
-    local token=""
-    
     while [ $retry_count -lt $MAX_RETRIES ]; do
-        token=$(curl -X PUT "http://169.254.169.254/latest/api/token" \
-            -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" \
-            --connect-timeout 5 \
-            --retry 3 \
-            --silent)
-            
+        # Get IMDSv2 token for metadata access
+        local token=$(curl -X PUT "http://$IMDS_ENDPOINT/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: $IMDS_TOKEN_TTL" --retry 3 --retry-delay 1 --silent --fail)
         if [ -n "$token" ]; then
-            # Get and configure region
-            local region=$(curl -H "X-aws-ec2-metadata-token: $token" \
-                -s http://169.254.169.254/latest/meta-data/placement/region)
+            log_message "INFO" "IMDSv2 token acquired successfully"
+            debug_message "IMDSv2 token: $token"
+            # Get region from instance metadata
+            local region=$(curl -H "X-aws-ec2-metadata-token: $token" "http://$IMDS_ENDPOINT/latest/meta-data/placement/region")
             if [ -n "$region" ]; then
+                log_message "INFO" "Instance region acquired successfully"
+                debug_message "Instance region: $region"
                 aws configure set region "$region"
+                log_message "INFO" "AWS credentials available and region set"
                 return 0
+            else
+                log_message "WARNING" "Failed to get instance region, will retry..."
             fi
+        else
+            log_message "WARNING" "Failed to acquire IMDSv2 token, will retry..."
         fi
-        
-        long_message "WARNING" "Waiting for AWS credentials... (attempt $((retry_count + 1)))"
+        log_message "WARNING" "Waiting for AWS credentials... (attempt $((retry_count + 1)))"
         sleep 5
         ((retry_count++))
     done
-    
+    log_message "ERROR" "Failed to acquire AWS credentials after $MAX_RETRIES attempts"
     return 1
 }
 
@@ -116,42 +120,36 @@ check_backup_vault() {
         log_message "INFO" "Checking AWS Backup vault configuration..."
         
         # First verify AWS CLI can make requests
-        if ! aws sts get-caller-identity >/dev/null 2>&1; then
-            log_message "ERROR" "Unable to validate AWS credentials"
-            aws sts get-caller-identity 2>&1 | tee -a "$BACKUP_TEST_LOG"
+        local caller_identity=$(aws sts get-caller-identity)
+        if [ $? -ne 0 ]; then
+            log_message "WARNING" "Unable to validate AWS credentials"
             sleep 5
             ((retry_count++))
             continue
         fi
+        log_message "INFO" "AWS credentials validated"
+        debug_message "Caller identity details: $caller_identity"
 
         local vault_info=$(aws backup describe-backup-vault --backup-vault-name "$VAULT_NAME")
         
         # Check if vault exists
         if [ -n "$vault_info" ]; then
-            VAULT_INFO="$vault_info"
             log_message "INFO" "✓ Backup vault '$VAULT_NAME' found"
-            log_message "INFO" "Backup vault details:"
-            log_message "INFO" $VAULT_INFO | jq .
+            debug_message "Backup vault details: $vault_info"
             
             # Verify permissions by trying to list recovery points
-            reovery_points=$(aws backup list-recovery-points-by-backup-vault --backup-vault-name "$VAULT_NAME")
-            if [ -n "$reovery_points" ]; then
-                RECOVERY_POINTS="$reovery_points"
+            local recovery_points=$(aws backup list-recovery-points-by-backup-vault --backup-vault-name "$VAULT_NAME")
+            if [ $? -ne 0 ]; then
+                local recovery_points_json=$(echo $recovery_points | jq .RecoveryPoints)
                 log_message "INFO" "✓ Backup vault permissions verified"
-                log_message "INFO" "Recovery points in vault (will be null if ran at server deployment):"
-                elog_message "INFO"cho $RECOVERY_POINTS | jq .RecoveryPoints
+                debug_message "Recovery points in vault (will be null if initial deployment): $recovery_points_json"
                 return 0
             else
                 log_message "ERROR" "Unable to list recovery points in vault"
-                aws backup list-recovery-points-by-backup-vault \
-                    --backup-vault-name "$VAULT_NAME" \
-                    --max-results 1 2>&1 | tee -a "$BACKUP_TEST_LOG"
             fi
         else
             log_message "ERROR" "Backup vault '$VAULT_NAME' not found"
-            # List available vaults for debugging
-            log_message "ERROR" "Available backup vaults:"
-            aws backup list-backup-vaults --max-results 20 2>&1 | tee -a "$BACKUP_TEST_LOG"
+            log_message "ERROR" "Available backup vaults: $(aws backup list-backup-vaults --max-results 20 | jq .BackupVaultList)"
         fi
         
         log_message "WARNING" "Waiting for backup vault... (attempt $((retry_count + 1)))"
@@ -166,55 +164,52 @@ check_backup_vault() {
 # Function to check backup plan
 check_backup_plan() {
     log_message "INFO" "Checking backup plan configuration..."
-        # Query the backup plan ID using the plan name
-        local plan_id=$(aws backup list-backup-plans --query "BackupPlansList[?BackupPlanName=='$PLAN_NAME'].BackupPlanId" --output text)
-        if [ -n "$plan_id" ]; then
-            PLAN_ID="$plan_id"
-            log_message "INFO" "✓ Found backup plan ID: $PLAN_ID"
-            local plan_rules=$(aws backup get-backup-plan --backup-plan-id "$PLAN_ID" --output json)
-            if [ -n "$plan_rules" ]; then
-                PLAN_RULES="$plan_rules"
-                log_message "INFO" "✓ Backup plan rules:"
-                log_message "INFO" $PLAN_RULES | jq .BackupPlan.Rules
-                return 0
-            else
-                log_message "ERROR" "No backup plan rules found"
-            fi
+    # Query the backup plan ID using the plan name
+    local plan_id=$(aws backup list-backup-plans --query "BackupPlansList[?BackupPlanName=='$PLAN_NAME'].BackupPlanId" --output text)
+    if [ -n "$plan_id" ]; then
+        PLAN_ID="$plan_id"
+        log_message "INFO" "✓ Found backup plan ID"
+        debug_message "Backup Plan ID: $PLAN_ID"
+        local plan_rules=$(aws backup get-backup-plan --backup-plan-id "$PLAN_ID" --output json)
+        if [ $? -ne 0 ]; then
+            local plan_rules_json=$(echo $plan_rules | jq .BackupPlan.Rules)
+            log_message "INFO" "✓ Backup plan rules"
+            debug_message "$plan_rules_json"
+            return 0
         else
-            log_message "ERROR" "Backup plan '$PLAN_NAME' not found"
-            # List available backup plans for debugging
-            log_message "ERROR" "Available backup plans:"
-            aws backup list-backup-plans --max-results 20 2>&1 | tee -a "$BACKUP_TEST_LOG"
+            log_message "ERROR" "No backup plan rules found"
         fi
-
-    [ -z "$PLAN_ID" ] && return 1
+    else
+        log_message "ERROR" "Backup plan '$PLAN_NAME' not found"
+        # List available backup plans for debugging
+        log_message "ERROR" "Available backup plans: $(aws backup list-backup-plans --max-results 20 | jq .BackupPlansList)"
+        return 1
+    fi
 }
 
 # Function to validate backup selection
 check_backup_selection() {
     # Query the backup selection ID using the plan ID and selection name
     local selection_id=$(aws backup list-backup-selections --backup-plan-id $PLAN_ID --query "BackupSelectionsList[?SelectionName=='$SELECTION_NAME'].SelectionId" --output text)
-
     if [ -n "$selection_id" ]; then
-        SELECTION_ID="$selection_id"
-        log_message "INFO" "✓ Found backup selection ID: $SELECTION_ID"
-        local backup_selections=$(aws backup get-backup-selection --backup-plan-id $PLAN_ID --selection-id $SELECTION_ID --output json)
-        if [ -n "$backup_selections" ]; then
-            BACKUP_SELECTIONS="$backup_selections"
+        log_message "INFO" "✓ Found backup selection ID"
+        debug_message "Backup Selection ID: $selection_id"
+        local backup_selections=$(aws backup get-backup-selection --backup-plan-id $PLAN_ID --selection-id $selection_id --output json)
+        if [ $? -ne 0 ]; then
+            local backup_selections_json=$(echo $backup_selections | jq .BackupSelection)
             log_message "INFO" "✓ Backup selection details:"
-            log_message "INFO" $BACKUP_SELECTIONS | jq .BackupSelection
+            debug_message "$backup_selections_json"
             return 0
         else
             log_message "ERROR" "No backup selection details found"
+            return 1
         fi
     else 
         log_message "ERROR" "Backup selection '$SELECTION_NAME' not found"
         # List available backup selections for debugging
-        log_message "ERROR"  "Available backup selections:"
-        aws backup list-backup-selections --backup-plan-id $PLAN_ID --max-results 20 2>&1 | tee -a "$BACKUP_TEST_LOG"
+        log_message "ERROR"  "Available backup selections: $(aws backup list-backup-selections --backup-plan-id $PLAN_ID --max-results 20 | jq .BackupSelectionsList)"
+        return 1
     fi
-
-    [ -z "$SELECTION_ID" ] && return 1
 }
 
 # Function to check if server is ready to perform tests
@@ -268,11 +263,11 @@ test_local_backup_creation() {
     while [ $retry_count -lt $MAX_RETRIES ]; do
         if /opt/minecraft/backup.sh; then
             # Verify backup file exists
-            local LATEST_BACKUP
-            LATEST_BACKUP=$(ls -t "$BACKUP_DIR"/world_backup_*.tar.gz 2>/dev/null | head -n1) || true
+            local latest_backup
+            latest_backup=$(ls -t "$BACKUP_DIR"/world_backup_*.tar.gz 2>/dev/null | head -n1) || true
             
-            if [ -f "$LATEST_BACKUP" ]; then
-                log_message "INFO" "Local backup created successfully: $LATEST_BACKUP"
+            if [ -f "$latest_backup" ]; then
+                log_message "INFO" "Local backup created successfully: $latest_backup"
                 return 0
             fi
         fi
@@ -287,11 +282,11 @@ test_local_backup_creation() {
 
 # Function to test backup restoration
 test_backup_restoration() {
-    local LATEST_BACKUP=$(ls -t "$BACKUP_DIR"/world_backup_*.tar.gz | head -n1)
+    local latest_backup=$(ls -t "$BACKUP_DIR"/world_backup_*.tar.gz | head -n1)
     
     log_message "INFO" "Testing backup restoration..."
     mkdir -p "$RESTORE_DIR"
-    tar -xzf "$LATEST_BACKUP" -C "$RESTORE_DIR"
+    tar -xzf "$latest_backup" -C "$RESTORE_DIR"
     
     if [ -f "$RESTORE_DIR/$TEST_WORLD/test_file" ]; then
         log_message "INFO" "Backup restoration test passed"
@@ -305,22 +300,30 @@ test_backup_restoration() {
 # Function to test AWS Backup integration
 test_aws_backup() {
     log_message "INFO" "Checking AWS Backup IAM role..."
-    aws iam get-role --role-name "$BACKUP_ROLE_NAME" >/dev/null 2>&1
-    if [ $? -eq 0 ]; then
+    local backup_iam_role=$(aws iam get-role --role-name "$BACKUP_ROLE_NAME")
+    if [ $? -ne 0 ]; then
+        backup_iam_role_json=$(echo $backup_iam_role | jq .Role)
         log_message "INFO" "AWS Backup role exists"
+        debug_message "$backup_iam_role_json"
     else
         log_message "ERROR" "AWS Backup role not found"
         return 1
     fi
     
     # List recent backups
-    aws backup list-recovery-points-by-backup-vault \
-        --backup-vault-name "$VAULT_NAME" \
-        --by-created-after "$(date -d '24 hours ago' --iso-8601=seconds)" \
-        >/dev/null 2>&1
-    
+    log_message "INFO" "Checking if AWS Backup vault is accessible..."
+    backup_recovery_points=$(aws backup list-recovery-points-by-backup-vault --backup-vault-name "$VAULT_NAME" --by-created-after "$(date -d '24 hours ago' --iso-8601=seconds)")
     if [ $? -eq 0 ]; then
         log_message "INFO" "AWS Backup vault accessible"
+        ##### NEED TO UPDATE IF LOGIC AS IT IS NOT A STRING #####
+        if [ -n "$backup_recovery_points" ]; then
+            log_message "INFO" "Checking recent recovery points..."
+            backup_recovery_points_json=$(echo $backup_recovery_points | jq .RecoveryPoints)
+            log_message "INFO" "Found recent recovery points"
+            debug_message "$backup_recovery_points_json"
+        else
+            log_message "WARNING" "No recent recovery points found"
+        fi
         return 0
     else
         log_message "ERROR" "AWS Backup vault access failed"
@@ -335,17 +338,17 @@ test_backup_versioning() {
     for i in {1..5}; do
         log_message "INFO" "Creating test backup $i..."
         log_message "INFO" "test data $i" > "$WORLDS_DIR/$TEST_WORLD/test_file_$i"
-        /opt/minecraft/backup.sh
+        /opt/minecraft/world_backup.sh
         sleep 2
     done
     
     # Check if we have the correct number of backups (should keep last 5)
-    local BACKUP_COUNT=$(ls "$BACKUP_DIR"/world_backup_*.tar.gz | wc -l)
-    if [ "$BACKUP_COUNT" -le 5 ]; then
-        log_message "INFO" "Backup versioning test passed (found $BACKUP_COUNT backups)"
+    local backup_count=$(ls "$BACKUP_DIR"/world_backup_*.tar.gz | wc -l)
+    if [ "$backup_count" -le 5 ]; then
+        log_message "INFO" "Backup versioning test passed (found $backup_count backups)"
         return 0
     else
-        log_message "ERROR" "Backup versioning test failed (found $BACKUP_COUNT backups, expected <= 5)"
+        log_message "ERROR" "Backup versioning test failed (found $backup_count backups, expected <= 5)"
         return 1
     fi
 }
@@ -388,16 +391,17 @@ main() {
     
     # Clean up test data
     rm -rf "$WORLDS_DIR/$TEST_WORLD" "$RESTORE_DIR"
-    log_message "INFO" "[$(date)] Cleaned up test data"
-    
-    log_message "INFO" "[$(date)] Backup validation tests completed successfully"
+    log_message "INFO" "Cleaned up test data"
+
+    log_message "INFO" "All world backup validation tests passed"
     return 0
 }
 
 # Execute main with error handling
 if main; then
+    log_message "INFO" "World backup validation completed successfully"
     exit 0
 else
-    log_message "ERROR" "[$(date)] Backup validation failed"
+    log_message "ERROR" "World backup validation failed"
     exit 1
 fi

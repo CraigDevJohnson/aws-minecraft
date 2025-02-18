@@ -15,8 +15,8 @@ Infrastructure Setup:
     ✓ Fix user_data.sh syntax errors
     ✓ Improve script error handling
     ✓ Add debug logging
-    ☐ Test script download functionality
-    ☐ Validate IMDSv2 token handling
+    ✓ Test script download functionality
+    ✓ Validate IMDSv2 token handling
 
 Network Layer:
     ✓ Design VPC architecture
@@ -33,7 +33,7 @@ Compute Layer:
     ☐ Configure auto-scaling options
     ☐ Set up spot instance configuration for cost optimization
     ☐ Implement instance scheduling based on player activity
-    ☐ Configure instance metadata service v2
+    ✓ Configure instance metadata service v2
 
 Storage Layer:
     ✓ Configure EBS volumes for world data
@@ -45,7 +45,7 @@ Storage Layer:
     ✓ Test backup selection functionality
     ☐ Configure backup encryption with KMS
     ☐ Set up backup notifications
-    ☐ Implement backup testing procedures
+    ✓ Implement backup testing procedures
     ☐ Validate backup restoration process
 
 Security:
@@ -73,7 +73,7 @@ Minecraft Server Setup:
     ✓ Configure systemd service
     ✓ Set up service logging
     ☐ Test server auto-start on reboot
-    ☐ Validate server installation process
+    ✓ Validate server installation process
     ☐ Test world data persistence
     ☐ Set up automatic updates
     ☐ Implement server-side plugins management
@@ -140,14 +140,14 @@ Performance Optimization:
 GitHub Repository Preparation:
     ✓ Update .gitignore for sensitive files
     ☐ Remove any committed sensitive files from history
-    ☐ Add PR template
+    ✓ Add PR template
     ☐ Set up branch protection rules
     ☐ Configure GitHub Actions environment secrets
     ☐ Add security scanning for Infrastructure as Code
     ☐ Set up Dependabot for security updates
-    ☐ Add CODEOWNERS file
-    ☐ Create contribution guidelines
-    ☐ Add security policy file
+    ✓ Add CODEOWNERS file
+    ✓ Create contribution guidelines
+    ✓ Add security policy file
 
 Security Hardening:
     ☐ Rotate any exposed AWS credentials

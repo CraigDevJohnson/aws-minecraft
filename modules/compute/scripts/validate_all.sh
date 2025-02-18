@@ -32,9 +32,7 @@ debug_message() {
 # Get IMDSv2 token
 get_imds_token() {
     local token
-    token=$(curl -X PUT "http://${IMDS_ENDPOINT}/latest/api/token" \
-        -H "X-aws-ec2-metadata-token-ttl-seconds: ${IMDS_TOKEN_TTL}" \
-        --retry 3 --retry-delay 1 --silent --fail)
+    token=$(curl -X PUT "http://${IMDS_ENDPOINT}/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: ${IMDS_TOKEN_TTL}" --retry 3 --retry-delay 1 --silent --fail)
     
     if [ $? -eq 0 ] && [ -n "$token" ]; then
         return 0
@@ -121,7 +119,7 @@ verify_all_scripts() {
     local failed=0
     local required_scripts=(
         "$SCRIPT_DIR/test_server.sh"
-        "$SCRIPT_DIR/test_backup.sh"
+        "$SCRIPT_DIR/test_world_backup.sh"
     )
     
     for script in "${required_scripts[@]}"; do
@@ -167,12 +165,12 @@ main() {
         return 1
     fi
     
-    # Run backup tests
-    log_message "INFO" "Running backup tests"
+    # Run world backup tests
+    log_message "INFO" "Running world backup tests"
     # Pass through the environment variable if it exists
     export MINECRAFT_ENVIRONMENT="${MINECRAFT_ENVIRONMENT:-dev}"
-    if ! "$SCRIPT_DIR/test_backup.sh"; then
-        log_message "ERROR" "Backup tests failed"
+    if ! "$SCRIPT_DIR/test_world_backup.sh" "$IMDS_ENDPOINT" "$IMDS_TOKEN_TTL"; then
+        log_message "ERROR" "World backup tests failed"
         return 1
     fi
     
@@ -182,6 +180,7 @@ main() {
 
 # Run main function with error handling
 if main; then
+    log_message "INFO" "Validation suite completed successfully"
     exit 0
 else
     log_message "ERROR" "Validation suite failed. Check $MAIN_LOG for details"

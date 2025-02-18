@@ -57,3 +57,4 @@ variable "availability_zone" {
   description = "Availability zone to launch the instance and create the EBS volume in"
   type        = string
 }
+

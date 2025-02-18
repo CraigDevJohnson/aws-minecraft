@@ -1,3 +1,13 @@
+terraform {
+  required_version = ">= 1.5.0"
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
 module "network" {
   source = "../../modules/network"
 
@@ -11,7 +21,7 @@ module "security" {
 
   environment = var.environment
   vpc_id      = module.network.vpc_id
-  vpc_cidr    = module.network.vpc_cidr
+  #vpc_cidr    = module.network.vpc_cidr
   server_type = var.server_type
 }
 

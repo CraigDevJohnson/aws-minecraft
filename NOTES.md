@@ -165,3 +165,8 @@ Current focus areas:
 Please review #file:copilot-instructions.md as it has your instructions. Then, there are issues with the testing shell scripts. The issue is this section of the test_server.sh: run_test "Service Status" check_server_status run_test "Process Check" check_server_process run_test "Log Check" check_server_logs run_test "Network Ports" check_network_ports
 
 It runs the first test and then stops. It looks like the first test is returning 0 so I'm not sure why it is stopping.
+
+
+
+
+CHECK SCRIPT IF LOGICS FOR VALIDATING OFF VARIABLES THAT AREN'T STRINGS.
