@@ -123,7 +123,7 @@ resource "aws_iam_role_policy" "backup_permissions" {
           "backup:TagResource",
           "backup:UntagResource"
         ]
-        Resource = "*"
+        Resource = "arn:aws:backup:us-west-2:*:backup-vault:minecraft-${var.environment}-backup-vault"
       }
     ]
   })

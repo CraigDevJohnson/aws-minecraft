@@ -80,11 +80,11 @@ resource "aws_s3_object" "test_scripts" {
   for_each = local.script_content
 
   bucket         = aws_s3_bucket.scripts.id
-  key            = local.script_names[each.key]  # Use versioned filename
+  key            = local.script_names[each.key] # Use versioned filename
   content_base64 = each.value
   content_type   = "text/x-shellscript"
-  etag          = md5(each.value)
-  force_destroy = true
+  etag           = md5(each.value)
+  force_destroy  = true
 
   # Add server-side encryption
   server_side_encryption = "AES256"
@@ -92,8 +92,8 @@ resource "aws_s3_object" "test_scripts" {
   # Ensure proper content encoding and permissions
   metadata = {
     "content-transfer-encoding" = "base64"
-    "permissions" = "0755"  # Ensure scripts are executable
-    "original-filename" = each.key
+    "permissions"               = "0755" # Ensure scripts are executable
+    "original-filename"         = each.key
   }
 }
 
@@ -155,50 +155,58 @@ resource "aws_iam_role_policy" "minecraft_server" {
   role = aws_iam_role.minecraft_server.id
 
   policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
+    "Version" : "2012-10-17",
+    "Statement" : [
       {
-        Effect = "Allow"
-        Action = [
+        "Action" : [
           "s3:GetObject",
           "s3:ListBucket",
           "s3:GetObjectVersion"
-        ]
-        Resource = [
-          aws_s3_bucket.scripts.arn,
-          "${aws_s3_bucket.scripts.arn}/*"
-        ]
+        ],
+        "Effect" : "Allow",
+        "Resource" : "arn:aws:s3:::minecraft-*-scripts-*"
       },
       {
-        Effect = "Allow"
-        Action = [
+        "Action" : [
           "backup:StartBackupJob",
           "backup:DescribeBackupVault",
           "backup:GetBackupPlan",
           "backup:GetBackupSelection",
           "backup:ListBackupJobs",
-          "backup:ListBackupVaults"
-        ]
-        Resource = "*"
+          "backup:ListBackupVaults",
+          "backup:ListRecoveryPointsByBackupVault",
+          "backup:ListBackupPlans",
+          "backup:ListBackupSelections"
+        ],
+        "Effect" : "Allow",
+        "Resource" : "*"
       },
       {
-        Effect = "Allow"
-        Action = [
+        "Action" : [
           "logs:CreateLogGroup",
           "logs:CreateLogStream",
           "logs:PutLogEvents",
           "logs:DescribeLogStreams"
-        ]
-        Resource = "arn:aws:logs:*:*:*"
+        ],
+        "Effect" : "Allow",
+        "Resource" : "arn:aws:logs:*:*:*"
       },
       {
-        Effect = "Allow"
-        Action = [
+        "Action" : [
           "ec2:DescribeVolumes",
           "ec2:AttachVolume",
-          "ec2:DetachVolume"
-        ]
-        Resource = "*"
+          "ec2:DetachVolume",
+          "ec2:DescribeTags"
+        ],
+        "Effect" : "Allow",
+        "Resource" : "*"
+      },
+      {
+        "Action" : [
+          "iam:GetRole"
+        ],
+        "Effect" : "Allow",
+        "Resource" : "arn:aws:iam::*:role/minecraft-*-backup-role"
       }
     ]
   })

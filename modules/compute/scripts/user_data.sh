@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Constants
+# Constants for terraform template variables - single $
 IMDS_ENDPOINT="${imds_endpoint}"
 IMDS_TOKEN_TTL="${imds_token_ttl}"
 BUCKET_NAME="${bucket_name}"
@@ -10,41 +10,74 @@ TEST_SERVER_SCRIPT="${test_server_script}"
 VALIDATE_SCRIPT="${validate_script}"
 BACKUP_SCRIPT="${backup_script}"
 SERVER_TYPE="${server_type}"
+CLOUD_INIT_OUTPUT_LOG="/var/log/cloud-init-output.log"
+APT_PACKAGES="jq curl"
+SNAP_AWSCLI= "awscli"
 
-# Enable debug logging
-exec 1> >(tee -a /var/log/cloud-init-output.log)
-exec 2>&1
-set -x
+
+# Enable debug output
+DEBUG=true
+# exec 1> >(tee -a /var/log/cloud-init-output.log)
+# exec 2>&1
+# set -x
+
+log_message() {
+    local level="$1"
+    local message="$2"
+    echo "[$(date)] [$level] $message" | tee -a "$CLOUD_INIT_OUTPUT_LOG"
+}
+
+debug_message() {
+    if [ "$DEBUG" = true ]; then
+        log_message "DEBUG" "$1"
+    fi
+}
 
 # Script start
-echo "[$(date)] Starting Minecraft server setup..."
+log_message "INFO" "Starting Minecraft server setup..."
 
-# Install required packages
+# Install required packages and verify installation
+log_message "INFO" "Installing required apt-get packages ($APT_PACKAGES)..."
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y jq unzip curl
+DEBIAN_FRONTEND=noninteractive apt-get install -y $APT_PACKAGES
+CURL_VERSION=$(curl --version | head -n 1)
+JQ_VERSION=$(jq --version)
+if [ -n "$CURL_VERSION" ] && [ -n "$JQ_VERSION" ]; then
+    log_message "INFO" "Installed $APT_PACKAGES packages successfully: $JQ_VERSION, $CURL_VERSION"
+else
+    log_message "ERROR" "Failed to install required packages"
+    exit 1
+fi
 
 # Install AWS CLI v2
-echo "[$(date)] Installing AWS CLI..."
-curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-unzip -q awscliv2.zip
-./aws/install
-rm -rf aws awscliv2.zip
+log_message "INFO" "Installing AWS CLI..."
+snap install $SNAP_AWSCLI --classic
+$AWSCLI_VERSION=$(aws --version)
+if [ -n "$AWSCLI_VERSION" ]; then
+    log_message "INFO" "AWS CLI installed successfully: $AWSCLI_VERSION"
+else
+    log_message "ERROR" "Failed to install AWS CLI"
+    exit 1
+fi
 
 # Function to find the EBS device
 find_ebs_device() {
     if [ -e /dev/xvdf ]; then
-        echo "/dev/xvdf"
-        return 0
+        FOUND_DEVICE="/dev/xvdf"
     fi
     
     if [ -e /dev/nvme1n1 ]; then
-        echo "/dev/nvme1n1"
+        FOUND_DEVICE="/dev/nvme1n1"
+    fi
+    if [ -n "$FOUND_DEVICE" ]; then
+        log_message "INFO" "Found EBS device: $FOUND_DEVICE"
+        echo "$FOUND_DEVICE"
         return 0
     fi
-    
+    log _message "ERROR" "EBS device not found"
     return 1
 }
-
+############## KEEP UPDATING FROM HERE ##############
 # Wait for EBS volume
 echo "[$(date)] Waiting for EBS volume to be attached..."
 EBS_DEVICE=""
@@ -80,17 +113,17 @@ echo "[$(date)] Mounting EBS volume..."
 mount_attempts=0
 max_mount_attempts=3
 
-while [ $${mount_attempts} -lt $${max_mount_attempts} ]; do
+while [ "$mount_attempts" -lt "$max_mount_attempts" ]; do
     if mount /mnt/minecraft_data; then
-        echo "[$(date)] Successfully mounted $${EBS_DEVICE} to /mnt/minecraft_data"
+        echo "[$(date)] Successfully mounted $EBS_DEVICE to /mnt/minecraft_data"
         break
     else
         mount_attempts=$((mount_attempts + 1))
-        if [ $${mount_attempts} -eq $${max_mount_attempts} ]; then
-            echo "[$(date)] Failed to mount volume after $${max_mount_attempts} attempts"
+        if [ "$mount_attempts" -eq "$max_mount_attempts" ]; then
+            echo "[$(date)] Failed to mount volume after $max_mount_attempts attempts"
             exit 1
         fi
-        echo "[$(date)] Mount attempt $${mount_attempts} failed, waiting 10s before retry..."
+        echo "[$(date)] Mount attempt $mount_attempts failed, waiting 10s before retry..."
         sleep 10
     fi
 done
@@ -105,76 +138,38 @@ else
     exit 1
 fi
 
-# Prepare data directory
-if [ ! -d "/mnt/minecraft_data/worlds" ]; then
-    mkdir -p /mnt/minecraft_data/worlds
-    mkdir -p /mnt/minecraft_data/backups
-    chown -R ubuntu:ubuntu /mnt/minecraft_data
-fi
+# Create directories with proper permissions
+echo "[$(date)] Creating required directories..."
+# Create /opt/minecraft directories
+mkdir -p /opt/minecraft/test
+mkdir -p /opt/minecraft/worlds
+mkdir -p /opt/minecraft/backups
 
-# Create directory structure with error checking
-create_directories() {
-    local base_dirs="/opt/minecraft /opt/minecraft/test /mnt/minecraft_data/worlds /mnt/minecraft_data/backups"
-    
-    for dir in $base_dirs; do
-        if ! mkdir -p "$dir"; then
-            echo "[$(date)] Failed to create directory: $dir" >&2
-            return 1
-        fi
-    done
-    
-    # Set permissions
-    if ! chown -R ubuntu:ubuntu /opt/minecraft /mnt/minecraft_data; then
-        echo "[$(date)] Failed to set directory ownership" >&2
-        return 1
-    fi
-    
-    if ! chmod 755 /opt/minecraft /mnt/minecraft_data; then
-        echo "[$(date)] Failed to set directory permissions" >&2
-        return 1
-    fi
-    
-    return 0
-}
+# Create /mnt/minecraft_data directories
+mkdir -p /mnt/minecraft_data/worlds
+mkdir -p /mnt/minecraft_data/backups
 
-# Create symbolic links with error checking
-create_symlinks() {
-    local src_dest="
-        /mnt/minecraft_data/worlds:/opt/minecraft/worlds
-        /mnt/minecraft_data/backups:/opt/minecraft/backups
-    "
-    
-    echo "$src_dest" | while IFS=: read -r src dest; do
-        # Skip empty lines
-        [ -z "$src" ] && continue
-        
-        # Trim whitespace
-        src=$(echo "$src" | xargs)
-        dest=$(echo "$dest" | xargs)
-        
-        if ! ln -sf "$src" "$dest"; then
-            echo "[$(date)] Failed to create symlink: $src -> $dest" >&2
-            return 1
-        fi
-    done
-    
-    return 0
-}
+# Create log directories
+mkdir -p /var/log/minecraft/test
 
+# Set permissions
+echo "[$(date)] Setting directory permissions..."
+chown -R ubuntu:ubuntu /opt/minecraft /mnt/minecraft_data /var/log/minecraft
+chmod 755 /opt/minecraft /mnt/minecraft_data /var/log/minecraft
+
+# Create symbolic links
 echo "[$(date)] Creating symbolic links..."
-if ! create_symlinks; then
-    echo "[$(date)] Failed to create symbolic links"
-    exit 1
-fi
+ln -sf /mnt/minecraft_data/worlds /opt/minecraft/worlds
+ln -sf /mnt/minecraft_data/backups /opt/minecraft/backups
 
-# Get IMDSv2 token for metadata access
-TOKEN=$$(curl -X PUT "http://$${IMDS_ENDPOINT}/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: $${IMDS_TOKEN_TTL}" --retry 3)
+# Get IMDSv2 token for metadata access - use double $$ for bash variables that shouldn't be interpolated by terraform
+TOKEN=$(curl -X PUT "http://$IMDS_ENDPOINT/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: $IMDS_TOKEN_TTL" --retry 3)
 
 # Get region from instance metadata
-REGION=$$(curl -H "X-aws-ec2-metadata-token: $${TOKEN}" "http://$${IMDS_ENDPOINT}/latest/meta-data/placement/region")
+REGION=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" "http://$IMDS_ENDPOINT/latest/meta-data/placement/region")
 
 # Configure AWS CLI region
-aws configure set region "$${REGION}"
+aws configure set region "$REGION"
 
 # Download and setup scripts
 echo "[$(date)] Downloading scripts from S3..."
@@ -185,20 +180,20 @@ chown -R ubuntu:ubuntu /opt/minecraft/test
 chmod 755 /opt/minecraft/test
 
 # Download install script
-aws s3 cp "s3://$${BUCKET_NAME}/$${INSTALL_SCRIPT}" /tmp/install.sh
+aws s3 cp "s3://$BUCKET_NAME/$INSTALL_SCRIPT" /tmp/install.sh
 chmod +x /tmp/install.sh
 
 # Download test scripts
 echo "[$(date)] Downloading test server script..."
-aws s3 cp "s3://$${BUCKET_NAME}/$${TEST_SERVER_SCRIPT}" /opt/minecraft/test/test_server.sh
+aws s3 cp "s3://$BUCKET_NAME/$TEST_SERVER_SCRIPT" /opt/minecraft/test/test_server.sh
 chmod +x /opt/minecraft/test/test_server.sh
 
 echo "[$(date)] Downloading validation script..."
-aws s3 cp "s3://$${BUCKET_NAME}/$${VALIDATE_SCRIPT}" /opt/minecraft/test/validate_all.sh
+aws s3 cp "s3://$BUCKET_NAME/$VALIDATE_SCRIPT" /opt/minecraft/test/validate_all.sh
 chmod +x /opt/minecraft/test/validate_all.sh
 
 echo "[$(date)] Downloading backup test script..."
-aws s3 cp "s3://$${BUCKET_NAME}/$${BACKUP_SCRIPT}" /opt/minecraft/test/test_backup.sh
+aws s3 cp "s3://$BUCKET_NAME/$BACKUP_SCRIPT" /opt/minecraft/test/test_backup.sh
 chmod +x /opt/minecraft/test/test_backup.sh
 
 # Setup logging directory
@@ -207,7 +202,7 @@ chown -R ubuntu:ubuntu /var/log/minecraft
 
 # Run server installation
 echo "[$(date)] Running server installation script..."
-/tmp/install.sh "$${SERVER_TYPE}"
+/tmp/install.sh "$SERVER_TYPE"
 
 # Move world data if needed
 if [ -d "/opt/minecraft/worlds" ] && [ ! -L "/opt/minecraft/worlds" ]; then
@@ -221,24 +216,20 @@ cat > /opt/minecraft/backup.sh << 'EOF'
 #!/bin/bash
 set -e
 
-# Define backup locations
 BACKUP_DIR="/mnt/minecraft_data/backups"
 WORLDS_DIR="/mnt/minecraft_data/worlds"
 DATE=$(date +%Y%m%d_%H%M%S)
 
-# Ensure backup directory exists
-mkdir -p "BACKUP_DIR"
+mkdir -p "$BACKUP_DIR"
 
-# Create backup with error handling
-if ! tar -czf "BACKUP_DIR/world_backup_DATE.tar.gz" -C "WORLDS_DIR" .; then
-    echo "[$(date)] Backup failed" | tee -a /var/log/minecraft/backup.log
+if ! tar -czf "$BACKUP_DIR/world_backup_$DATE.tar.gz" -C "$WORLDS_DIR" .; then
+    echo "[$(date)] [ERROR] Backup failed" | tee -a /var/log/minecraft/backup.log
     exit 1
 fi
 
-# Cleanup old backups (keep last 5)
-ls -t "BACKUP_DIR"/world_backup_*.tar.gz | tail -n +6 | xargs -r rm
+ls -t "$BACKUP_DIR"/world_backup_*.tar.gz | tail -n +6 | xargs -r rm
 
-echo "[$(date)] Backup completed successfully" | tee -a /var/log/minecraft/backup.log
+echo "[$(date)] [INFO] Backup completed successfully" | tee -a /var/log/minecraft/backup.log
 exit 0
 EOF
 
@@ -268,7 +259,7 @@ WantedBy=multi-user.target
 EOF
 
 # Create server startup script
-cat > /opt/minecraft/run_server.sh << EOSCRIPT
+cat > /opt/minecraft/run_server.sh << 'EOF'
 #!/bin/bash
 cd /opt/minecraft
 
@@ -287,23 +278,58 @@ if [ -f "bedrock_server" ]; then
 elif [ -f "server.jar" ]; then
     exec java -Xms512M -Xmx1024M -XX:+UseG1GC -jar server.jar nogui
 fi
-EOSCRIPT
+EOF
 
 chmod +x /opt/minecraft/run_server.sh
 
-# Run validation suite
-echo "[$(date)] Running validation suite..."
-if sudo -u ubuntu /opt/minecraft/test/validate_all.sh "$${IMDS_ENDPOINT}" "$${IMDS_TOKEN_TTL}"; then
-    echo "[$(date)] Initial validation succeeded"
-else
-    echo "[$(date)] Initial validation failed, retrying after 30s..."
-    sleep 30
-    if sudo -u ubuntu /opt/minecraft/test/validate_all.sh "$${IMDS_ENDPOINT}" "$${IMDS_TOKEN_TTL}"; then
-        echo "[$(date)] Retry validation succeeded"
+# Create wait-for-service function before validation
+wait_for_service() {
+    echo "[$(date)] Waiting for Minecraft server to be fully operational..."
+    local max_attempts=30
+    local attempt=1
+    local wait_time=10
+
+    while [ $attempt -le $max_attempts ]; do
+        if systemctl is-active minecraft.service >/dev/null 2>&1; then
+            # Check server log for startup completion
+            if grep -q "Server started." /var/log/minecraft/server.log 2>/dev/null; then
+                echo "[$(date)] Server is fully operational"
+                return 0
+            fi
+        fi
+        echo "[$(date)] Waiting for server to start (attempt $attempt of $max_attempts)..."
+        sleep $wait_time
+        ((attempt++))
+    done
+
+    echo "[$(date)] Timeout waiting for server to become operational"
+    return 1
+}
+
+# Run validation suite with proper waiting
+echo "[$(date)] Waiting for server to be ready before validation..."
+if wait_for_service; then
+    echo "[$(date)] Running validation suite..."
+    # Pass the environment from instance tags
+    INSTANCE_ID=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" "http://$IMDS_ENDPOINT/latest/meta-data/instance-id")
+    ENVIRONMENT=$(aws ec2 describe-tags --filters "Name=resource-id,Values=$INSTANCE_ID" "Name=key,Values=Environment" --query "Tags[0].Value" --output text)
+    
+    export MINECRAFT_ENVIRONMENT="$${ENVIRONMENT:-dev}"
+    if sudo -u ubuntu /opt/minecraft/test/validate_all.sh "$IMDS_ENDPOINT" "$IMDS_TOKEN_TTL"; then
+        echo "[$(date)] Initial validation succeeded"
     else
-        echo "[$(date)] Validation failed after retry. Check logs for details"
-        exit 1
+        echo "[$(date)] Initial validation failed, retrying after 30s..."
+        sleep 30
+        if sudo -u ubuntu /opt/minecraft/test/validate_all.sh "$IMDS_ENDPOINT" "$IMDS_TOKEN_TTL"; then
+            echo "[$(date)] Retry validation succeeded"
+        else
+            echo "[$(date)] Validation failed after retry. Check logs for details"
+            exit 1
+        fi
     fi
+else
+    echo "[$(date)] Server failed to become operational"
+    exit 1
 fi
 
 echo "[$(date)] Server setup completed successfully"

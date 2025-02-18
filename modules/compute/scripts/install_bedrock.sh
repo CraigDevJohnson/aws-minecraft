@@ -97,13 +97,14 @@ EOF
 
 # Configure server settings
 cat > /opt/minecraft/server.properties <<'EOF'
-server-name=AWS Minecraft Server
+server-name=Kankberry MC Server
 gamemode=survival
-difficulty=normal
+difficulty=easy
 allow-cheats=false
-max-players=10
+max-players=5
+chat-restriction=Dropped
+allow-list=true
 online-mode=true
-white-list=false
 server-port=19132
 server-portv6=19133
 view-distance=32
@@ -117,6 +118,20 @@ compression-threshold=1
 server-authoritative-movement=server-auth
 player-movement-score-threshold=20
 player-movement-action-direction-threshold=0.85
+EOF
+
+# Configure server allow-list
+cat > /opt/minecraft/allowlist.json <<'EOF'
+[
+    {
+        "ignoresPlayerLimit": false,
+        "name": "Kankberry"
+    },
+    {
+        "ignoresPlayerLimit": false,
+        "name": "Fraid4Brave",
+    }
+]
 EOF
 
 # Configure system limits
