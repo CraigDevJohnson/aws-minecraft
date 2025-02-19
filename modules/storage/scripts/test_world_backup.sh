@@ -133,13 +133,13 @@ check_backup_vault() {
         local vault_info=$(aws backup describe-backup-vault --backup-vault-name "$VAULT_NAME")
         
         # Check if vault exists
-        if [ -n "$vault_info" ]; then
+        if [ $? -eq 0 ]; then
             log_message "INFO" "✓ Backup vault '$VAULT_NAME' found"
             debug_message "Backup vault details: $vault_info"
             
             # Verify permissions by trying to list recovery points
             local recovery_points=$(aws backup list-recovery-points-by-backup-vault --backup-vault-name "$VAULT_NAME")
-            if [ $? -ne 0 ]; then
+            if [ $? -eq 0 ]; then
                 local recovery_points_json=$(echo $recovery_points | jq .RecoveryPoints)
                 log_message "INFO" "✓ Backup vault permissions verified"
                 debug_message "Recovery points in vault (will be null if initial deployment): $recovery_points_json"
@@ -171,7 +171,7 @@ check_backup_plan() {
         log_message "INFO" "✓ Found backup plan ID"
         debug_message "Backup Plan ID: $PLAN_ID"
         local plan_rules=$(aws backup get-backup-plan --backup-plan-id "$PLAN_ID" --output json)
-        if [ $? -ne 0 ]; then
+        if [ $? -eq 0 ]; then
             local plan_rules_json=$(echo $plan_rules | jq .BackupPlan.Rules)
             log_message "INFO" "✓ Backup plan rules"
             debug_message "$plan_rules_json"
@@ -195,7 +195,7 @@ check_backup_selection() {
         log_message "INFO" "✓ Found backup selection ID"
         debug_message "Backup Selection ID: $selection_id"
         local backup_selections=$(aws backup get-backup-selection --backup-plan-id $PLAN_ID --selection-id $selection_id --output json)
-        if [ $? -ne 0 ]; then
+        if [ $? -eq 0 ]; then
             local backup_selections_json=$(echo $backup_selections | jq .BackupSelection)
             log_message "INFO" "✓ Backup selection details:"
             debug_message "$backup_selections_json"
@@ -301,7 +301,7 @@ test_backup_restoration() {
 test_aws_backup() {
     log_message "INFO" "Checking AWS Backup IAM role..."
     local backup_iam_role=$(aws iam get-role --role-name "$BACKUP_ROLE_NAME")
-    if [ $? -ne 0 ]; then
+    if [ $? -eq 0 ]; then
         backup_iam_role_json=$(echo $backup_iam_role | jq .Role)
         log_message "INFO" "AWS Backup role exists"
         debug_message "$backup_iam_role_json"
@@ -315,14 +315,14 @@ test_aws_backup() {
     backup_recovery_points=$(aws backup list-recovery-points-by-backup-vault --backup-vault-name "$VAULT_NAME" --by-created-after "$(date -d '24 hours ago' --iso-8601=seconds)")
     if [ $? -eq 0 ]; then
         log_message "INFO" "AWS Backup vault accessible"
-        ##### NEED TO UPDATE IF LOGIC AS IT IS NOT A STRING #####
-        if [ -n "$backup_recovery_points" ]; then
+        recovery_point_count=$(echo "$backup_recovery_points" | jq '.RecoveryPoints | length')
+        if [ "$recovery_point_count" -gt 0 ]; then
             log_message "INFO" "Checking recent recovery points..."
             backup_recovery_points_json=$(echo $backup_recovery_points | jq .RecoveryPoints)
-            log_message "INFO" "Found recent recovery points"
+            log_message "INFO" "Found $recovery_point_count recovery points"
             debug_message "$backup_recovery_points_json"
         else
-            log_message "WARNING" "No recent recovery points found"
+            log_message "WARNING" "No recent recovery points found (expected if new deployment)"
         fi
         return 0
     else
