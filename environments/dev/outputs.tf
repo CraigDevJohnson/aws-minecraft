@@ -1,8 +1,3 @@
-output "minecraft_server_ip" {
-  description = "Public IP of the Minecraft server"
-  value       = module.compute.public_ip
-}
-
 output "minecraft_connect_info" {
   description = "Connection information for the Minecraft server"
   value = var.server_type == "bedrock" ? (
@@ -19,36 +14,5 @@ output "server_type" {
 
 output "ssh_command" {
   description = "Command to SSH into the server"
-  value       = "ssh -i C:/dev/keys/${var.key_name}.pem ubuntu@${module.compute.public_ip}"
-}
-
-# Backup configuration outputs
-output "backup_vault_name" {
-  description = "Name of the AWS Backup vault"
-  value       = module.storage.backup_vault_name
-}
-
-output "backup_vault_arn" {
-  description = "ARN of the AWS Backup vault"
-  value       = module.storage.backup_vault_arn
-}
-
-output "backup_plan_id" {
-  description = "ID of the AWS Backup plan"
-  value       = module.storage.backup_plan_id
-}
-
-output "backup_selection_arn" {
-  description = "ARN of the backup selection"
-  value       = module.storage.backup_selection_arn
-}
-
-output "backup_role_arn" {
-  description = "ARN of the IAM role used for backups"
-  value       = module.storage.backup_role_arn
-}
-
-output "backup_testing_command" {
-  description = "Command to run backup validation tests"
-  value       = module.storage.backup_testing_command
+  value       = module.compute.public_ip != null ? "ssh -i ${var.key_name}.pem ubuntu@${module.compute.public_ip}" : "Server IP not available yet"
 }

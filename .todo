@@ -10,13 +10,18 @@ Infrastructure Setup:
         ✓ providers.tf
     ✓ Configure AWS provider and backend storage
     ✓ Set up workspaces for dev/prod environments
-    ☐ Implement remote state locking mechanism
+    ✓ Implement remote state locking mechanism
     ☐ Set up state backup strategy
     ✓ Fix user_data.sh syntax errors
     ✓ Improve script error handling
     ✓ Add debug logging
     ✓ Test script download functionality
     ✓ Validate IMDSv2 token handling
+    ✓ Refactor to use OpenTofu instead of Terraform
+    ✓ Update project dependencies for OpenTofu
+    ☐ Review and update existing Terraform scripts for compatibility with OpenTofu
+    ☐ Test OpenTofu deployment process
+
 
 Network Layer:
     ✓ Design VPC architecture
@@ -54,7 +59,7 @@ Security:
     ✓ Add CloudWatch logging permissions
     ☐ Implement AWS Systems Manager Session Manager
     ☐ Set up CloudWatch alarms for security events
-    ☐ Implement IAM roles and policies
+    ✓ Implement IAM roles and policies
     ☐ Set up KMS encryption for sensitive data
     ✓ Configure security group rules
     ☐ Implement backup encryption
@@ -122,8 +127,8 @@ Testing:
     ☐ Create disaster recovery tests
 
 CI/CD Pipeline:
-    ☐ Set up GitHub Actions workflow
-    ☐ Configure terraform validation
+    ✓ Set up GitHub Actions workflow
+    ✓ Configure terraform validation
     ☐ Implement automated testing
     ☐ Create deployment stages
     ☐ Set up environment promotion strategy
@@ -142,8 +147,8 @@ GitHub Repository Preparation:
     ☐ Remove any committed sensitive files from history
     ✓ Add PR template
     ☐ Set up branch protection rules
-    ☐ Configure GitHub Actions environment secrets
-    ☐ Add security scanning for Infrastructure as Code
+    ✓ Configure GitHub Actions environment secrets
+    ✓ Add security scanning for Infrastructure as Code
     ☐ Set up Dependabot for security updates
     ✓ Add CODEOWNERS file
     ✓ Create contribution guidelines

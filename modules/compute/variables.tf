@@ -58,3 +58,14 @@ variable "availability_zone" {
   type        = string
 }
 
+variable "inactivity_shutdown_minutes" {
+  description = "Number of minutes of inactivity before shutting down the server (0 to disable)"
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.inactivity_shutdown_minutes >= 0
+    error_message = "inactivity_shutdown_minutes must be a non-negative number"
+  }
+}
+

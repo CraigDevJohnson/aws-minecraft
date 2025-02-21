@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.5.0"
+  required_version = ">= 1.6.0"
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -9,7 +9,7 @@ terraform {
 }
 
 data "aws_ami" "ubuntu" {
-  most_recent = true
+  most_recent = true             # Always fetch the latest available AMI
   owners      = ["099720109477"] // Canonical's AWS account ID
 
   filter {
@@ -26,14 +26,24 @@ data "aws_ami" "ubuntu" {
 locals {
   script_path = var.server_type == "bedrock" ? "${path.module}/scripts/install_bedrock.sh" : "${path.module}/scripts/install_java.sh"
 
-  # Add hash suffix to script names for versioning
+  # Only include script hash in metadata, not filename
   script_names = {
-    "install.sh"           = "install-${md5(file(local.script_path))}.sh"
-    "run_server.sh"        = "run_server-${md5(file("${path.module}/scripts/run_server.sh"))}.sh"
-    "world_backup.sh"      = "world_backup-${md5(file("${path.module}/../storage/scripts/world_backup.sh"))}.sh"
-    "validate_all.sh"      = "validate_all-${md5(file("${path.module}/scripts/validate_all.sh"))}.sh"
-    "test_server.sh"       = "test_server-${md5(file("${path.module}/scripts/test_server.sh"))}.sh"
-    "test_world_backup.sh" = "test_world_backup-${md5(file("${path.module}/../storage/scripts/test_world_backup.sh"))}.sh"
+    "install.sh"           = "install.sh"
+    "run_server.sh"        = "run_server.sh"
+    "world_backup.sh"      = "world_backup.sh"
+    "validate_all.sh"      = "validate_all.sh"
+    "test_server.sh"       = "test_server.sh"
+    "test_world_backup.sh" = "test_world_backup.sh"
+  }
+
+  # Add script version as metadata instead of filename
+  script_versions = {
+    "install.sh"           = md5(file(local.script_path))
+    "run_server.sh"        = md5(file("${path.module}/scripts/run_server.sh"))
+    "world_backup.sh"      = md5(file("${path.module}/../storage/scripts/world_backup.sh"))
+    "validate_all.sh"      = md5(file("${path.module}/scripts/validate_all.sh"))
+    "test_server.sh"       = md5(file("${path.module}/scripts/test_server.sh"))
+    "test_world_backup.sh" = md5(file("${path.module}/../storage/scripts/test_world_backup.sh"))
   }
 
   # Function to convert Windows line endings to Unix
@@ -51,6 +61,10 @@ locals {
 resource "aws_s3_bucket" "scripts" {
   bucket_prefix = "minecraft-${var.environment}-scripts-"
   force_destroy = true
+
+  lifecycle {
+    prevent_destroy = true # Prevent accidental deletion of script bucket
+  }
 }
 
 # Ensure the bucket is private
@@ -94,20 +108,23 @@ resource "aws_s3_object" "test_scripts" {
   for_each = local.script_content
 
   bucket         = aws_s3_bucket.scripts.id
-  key            = local.script_names[each.key] # Use versioned filename
+  key            = local.script_names[each.key]
   content_base64 = each.value
   content_type   = "text/x-shellscript"
-  etag           = md5(each.value)
+  etag           = local.script_versions[each.key]
   force_destroy  = true
 
-  # Add server-side encryption
-  server_side_encryption = "AES256"
-
-  # Ensure proper content encoding and permissions
   metadata = {
+    "version"                   = local.script_versions[each.key]
     "content-transfer-encoding" = "base64"
-    "permissions"               = "0755" # Ensure scripts are executable
+    "permissions"               = "0755"
     "original-filename"         = each.key
+  }
+
+  lifecycle {
+    ignore_changes = [
+      etag # Only ignore etag changes
+    ]
   }
 }
 
@@ -232,7 +249,7 @@ resource "aws_iam_instance_profile" "minecraft_server" {
   role = aws_iam_role.minecraft_server.name
 }
 
-# Create a persistent EBS volume for world data
+// Create a persistent EBS volume for world data
 resource "aws_ebs_volume" "minecraft_data" {
   availability_zone = var.availability_zone
   size              = var.world_data_volume_size
@@ -242,17 +259,20 @@ resource "aws_ebs_volume" "minecraft_data" {
   tags = {
     Name = "minecraft-${var.environment}-${var.server_type}-data"
   }
-  // WILL ADD IN PROD BUT NOT DEV
-  # lifecycle {
-  #   prevent_destroy = true  # Prevent accidental deletion of world data
-  # }
+
+  lifecycle {
+    prevent_destroy = true # Prevent accidental destruction of world data
+    ignore_changes = [
+      tags["CreatedAt"]
+    ]
+  }
 }
 
 resource "aws_instance" "minecraft" {
   ami               = data.aws_ami.ubuntu.id
   instance_type     = var.instance_type
   subnet_id         = var.subnet_id
-  availability_zone = var.availability_zone // Ensure instance is in same AZ as the EBS volume
+  availability_zone = var.availability_zone
 
   vpc_security_group_ids = [var.security_group_id]
   key_name               = var.key_name
@@ -276,10 +296,20 @@ resource "aws_instance" "minecraft" {
       test_world_backup_script = local.script_names["test_world_backup.sh"]
       imds_endpoint            = "169.254.169.254"
       imds_token_ttl           = "21600"
+      inactivity_minutes       = var.inactivity_shutdown_minutes
     }
   )
 
-  user_data_replace_on_change = true
+  user_data_replace_on_change = false # Changed from true to prevent unnecessary replacements
+
+  # Add lifecycle block to prevent unnecessary recreations
+  lifecycle {
+    ignore_changes = [
+      user_data,
+      user_data_base64,
+      tags["CreatedAt"] # Prevent recreation when timestamp changes
+    ]
+  }
 
   metadata_options {
     http_endpoint               = "enabled"
@@ -296,6 +326,28 @@ resource "aws_instance" "minecraft" {
     CreatedAt   = timestamp()
   }
 }
+
+# CloudWatch alarm for server inactivity
+resource "aws_cloudwatch_metric_alarm" "no_players_shutdown" {
+  count               = var.inactivity_shutdown_minutes > 0 ? 1 : 0
+  alarm_name          = "minecraft-${var.environment}-no-players"
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = var.inactivity_shutdown_minutes
+  metric_name         = "NetworkPacketsIn"
+  namespace           = "AWS/EC2"
+  period              = "60"
+  statistic           = "Sum"
+  threshold           = "1"
+  alarm_description   = "This metric monitors server inactivity"
+  alarm_actions       = ["arn:aws:automate:${data.aws_region.current.name}:ec2:stop"]
+
+  dimensions = {
+    InstanceId = aws_instance.minecraft.id
+  }
+}
+
+# Get current region
+data "aws_region" "current" {}
 
 # Attach the EBS volume to the instance
 resource "aws_volume_attachment" "minecraft_data" {

@@ -1,11 +1,10 @@
 terraform {
-  backend "local" {
-    path = "terraform.tfstate"
+  backend "s3" {
+    bucket               = "minecraft-tofu-state"
+    key                  = "tofu/minecraft.tfstate"
+    region               = "us-west-2"
+    dynamodb_table       = "minecraft-tofu-lock-table"
+    encrypt              = true
+    workspace_key_prefix = "env"
   }
-  # TODO: Change to S3 backend once tested locally
-  # backend "s3" {
-  #   bucket = "minecraft-terraform-state"
-  #   key    = "terraform.tfstate"
-  #   region = "us-west-2"
-  # }
 }

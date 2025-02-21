@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.5.0"
+  required_version = ">= 1.6.0"
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -16,6 +16,10 @@ resource "aws_backup_vault" "minecraft" {
   tags = {
     Environment = var.environment
     Project     = "minecraft"
+  }
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
@@ -53,6 +57,13 @@ resource "aws_backup_plan" "minecraft" {
   tags = {
     Environment = var.environment
     Project     = "minecraft"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes = [
+      tags["CreatedAt"]
+    ]
   }
 }
 

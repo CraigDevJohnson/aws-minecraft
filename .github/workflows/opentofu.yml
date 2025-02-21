@@ -1,0 +1,70 @@
+name: OpenTofu Validation and Testing
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  AWS_REGION: us-west-2
+  TOFU_VERSION: 1.6.0
+
+jobs:
+  validate:
+    name: Validate Infrastructure
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment: [dev, prod]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      - name: OpenTofu Init ${{ matrix.environment }}
+        working-directory: environments/${{ matrix.environment }}
+        run: tofu init -backend=false
+
+      - name: Select Workspace
+        working-directory: environments/${{ matrix.environment }}
+        run: tofu workspace select ${{ matrix.environment }} || tofu workspace new ${{ matrix.environment }}
+
+      - name: OpenTofu Validate ${{ matrix.environment }}
+        working-directory: environments/${{ matrix.environment }}
+        run: tofu validate
+
+      - name: OpenTofu Plan ${{ matrix.environment }}
+        working-directory: environments/${{ matrix.environment }}
+        if: github.event_name == 'pull_request'
+        run: tofu plan -no-color
+        continue-on-error: true
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+
+      - name: Run TFLint
+        run: |
+          tflint --init
+          tflint --recursive --format compact
+
+  security-scan:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run tfsec
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          soft_fail: true
+
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          framework: terraform
+          soft_fail: true
