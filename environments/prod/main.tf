@@ -48,3 +48,13 @@ module "storage" {
 
   depends_on = [module.compute]
 }
+
+module "lambda" {
+  source = "../../modules/lambda"
+
+  environment           = var.environment
+  minecraft_instance_id = module.compute.instance_id
+  cors_origin           = "*" # Update this with your actual domain when ready
+
+  depends_on = [module.compute]
+}

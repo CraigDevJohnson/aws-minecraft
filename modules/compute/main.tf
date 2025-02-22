@@ -8,6 +8,9 @@ terraform {
   }
 }
 
+# Get current region
+data "aws_region" "current" {}
+
 data "aws_ami" "ubuntu" {
   most_recent = true             # Always fetch the latest available AMI
   owners      = ["099720109477"] // Canonical's AWS account ID
@@ -104,7 +107,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "scripts" {
 }
 
 # Upload scripts to S3 with proper encoding and metadata
-resource "aws_s3_object" "test_scripts" {
+resource "aws_s3_object" "server_scripts" {
   for_each = local.script_content
 
   bucket         = aws_s3_bucket.scripts.id
@@ -345,9 +348,6 @@ resource "aws_cloudwatch_metric_alarm" "no_players_shutdown" {
     InstanceId = aws_instance.minecraft.id
   }
 }
-
-# Get current region
-data "aws_region" "current" {}
 
 # Attach the EBS volume to the instance
 resource "aws_volume_attachment" "minecraft_data" {

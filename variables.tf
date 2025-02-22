@@ -33,3 +33,9 @@ variable "inactivity_shutdown_minutes" {
   type        = number
   default     = 30
 }
+
+variable "lambda_function_name" {
+  description = "Name of the Lambda function"
+  type        = string
+  default     = "minecraft-lambda-manager"
+}

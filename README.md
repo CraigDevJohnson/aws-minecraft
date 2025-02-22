@@ -1,6 +1,6 @@
 # AWS Minecraft Server
 
-Deploy and maintain a Minecraft server in AWS using Terraform. Supports both Bedrock and Java editions with optimized configurations.
+Deploy and maintain a Minecraft server in AWS using OpenTofu. Supports both Bedrock and Java editions with optimized configurations.
 
 ## Features
 
@@ -9,35 +9,55 @@ Deploy and maintain a Minecraft server in AWS using Terraform. Supports both Bed
 - Cost-optimized instance types and configurations
 - Automatic server installation and configuration
 - Security-first approach with proper networking and access controls
-- Infrastructure as Code using Terraform
+- Infrastructure as Code using OpenTofu
+- Server Management API via Lambda and API Gateway
+- Secure admin controls for server operations
+- Cost-optimized API with pay-per-use model
+- CORS support for web integration
 
 ## Prerequisites
 
 - AWS CLI configured with appropriate credentials
-- Terraform >= 1.5.0
+- OpenTofu >= 1.6.0
 - SSH key pair for server access
+- Admin token for server management
 
 ## Quick Start
 
 1. Clone the repository
-2. Navigate to the environment directory:
-   ```bash
-   cd environments/dev
-   ```
+2. Create the workspaces:
+   tofu workspace create prod && tofu workspace create dev
 
-3. Initialize Terraform:
+3. Initialize OpenTofu:
    ```bash
-   terraform init
+   tofu init
    ```
 
 4. Deploy Bedrock server (default):
    ```bash
-   terraform apply
+   tofu apply
    ```
 
    Or deploy Java server:
    ```bash
-   terraform apply -var="server_type=java" -var="instance_type=t3.large"
+   tofu apply -var="server_type=java" -var="instance_type=t3.large"
+   ```
+
+### API Setup
+1. Deploy the infrastructure:
+   ```bash
+   tofu workspace select dev
+   tofu apply
+   ```
+
+2. Note the API endpoint URL from the outputs:
+   - lambda_api_url: The API Gateway endpoint
+   - server_test_curl: Example curl command for testing
+
+3. Test the API:
+   ```bash
+   # Check server status
+   curl -X POST {lambda_api_url} -H "Content-Type: application/json" -d '{"action":"status"}'
    ```
 
 ## Architecture
@@ -54,10 +74,20 @@ Deploy and maintain a Minecraft server in AWS using Terraform. Supports both Bed
 - EBS volumes for server data
 - Automated server installation and configuration
 
+### API Layer
+- Lambda function for server management
+- API Gateway with CORS support
+- IAM roles with least privilege access
+- Environment-specific configurations
+- CloudWatch logging and monitoring
+
 ### Security
 - Isolated VPC environment
 - Restricted security group access
 - SSH key authentication
+- Admin token authentication for stop operations
+- CORS restrictions for API endpoints
+- CloudWatch logs for API access
 
 ## Configuration
 
@@ -68,6 +98,7 @@ The server can be customized through terraform.tfvars or command line variables:
 | server_type | Type of Minecraft server | "bedrock" | "bedrock", "java" |
 | instance_type | EC2 instance size | "t3.small" | Any valid EC2 type |
 | environment | Deployment environment | "dev" | "dev", "prod" |
+| admin_stop_token | Admin token for server control | Required | Any secure string |
 
 ## Maintenance
 
@@ -95,6 +126,9 @@ The server can be customized through terraform.tfvars or command line variables:
 - Uses cost-effective instance types
 - Automatic shutdown when inactive (TODO)
 - Resource tagging for cost allocation
+
+## API Documentation
+See [API Documentation](docs/api.md) for detailed information about the server management API endpoints and usage examples.
 
 ## Contributing
 

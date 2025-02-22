@@ -20,27 +20,27 @@ Infrastructure Setup:
     ✓ Refactor to use OpenTofu instead of Terraform
     ✓ Update project dependencies for OpenTofu
     ☐ Review and update existing Terraform scripts for compatibility with OpenTofu
-    ☐ Test OpenTofu deployment process
-
+    ✓ Test OpenTofu deployment process
 
 Network Layer:
     ✓ Design VPC architecture
     ✓ Create security groups
     ✓ Configure network ACLs
     ✓ Set up public/private subnets
-    ☐ Implement VPC flow logs
-    ☐ Set up bastion host for production
+    ☐ [COST-$$] VPC Flow Logs (Data transfer & storage costs)
+    ☐ [COST-$$] Bastion Host Production (EC2 running costs)
+    ☐ Implement network optimization
 
 Compute Layer:
     ✓ Research and select optimal EC2 instance type for cost/performance
     ✓ Create EC2 launch template
     ✓ Configure instance types for both Bedrock and Java
-    ☐ Configure auto-scaling options
-    ☐ Set up spot instance configuration for cost optimization
-    ☐ Implement instance scheduling based on player activity
     ✓ Configure instance metadata service v2
+    ☐ [COST-$$] Auto-scaling Configuration (Variable EC2 costs)
+    ☐ [COST-$$] Spot Instance Setup (Reduced compute costs)
+    ☐ [COST-$$] EC2 CPU Credits Management (t-series billing)
 
-Storage Layer:
+Storage and Backup:
     ✓ Configure EBS volumes for world data
     ✓ Set up automatic mounting and data persistence
     ✓ Configure local backup rotation
@@ -48,26 +48,34 @@ Storage Layer:
     ✓ Implement backup lifecycle policies
     ✓ Configure backup permissions and roles
     ✓ Test backup selection functionality
-    ☐ Configure backup encryption with KMS
-    ☐ Set up backup notifications
     ✓ Implement backup testing procedures
+    ☐ [COST-$$] KMS Backup Encryption (Key management + API calls)
+    ☐ [COST-$$] Backup Notifications (SNS costs)
     ☐ Validate backup restoration process
+    ☐ [COST-$$] EBS Performance Optimization (IOPS costs)
+    ☐ [COST-$$] CDN Distribution Setup (CloudFront usage)
 
-Security:
+Security and Compliance:
     ✓ Implement IMDSv2
     ✓ Configure proper IAM roles and policies
     ✓ Add CloudWatch logging permissions
-    ☐ Implement AWS Systems Manager Session Manager
-    ☐ Set up CloudWatch alarms for security events
-    ✓ Implement IAM roles and policies
-    ☐ Set up KMS encryption for sensitive data
     ✓ Configure security group rules
-    ☐ Implement backup encryption
-    ☐ Set up AWS WAF for DDoS protection
-    ☐ Implement AWS Shield (if needed)
     ✓ Add error handling for credential retrieval
+    ✓ Implement SSM Parameter Store for token management
+    ✓ Test token validation and error handling
+    ☐ [COST-$$] Systems Manager Session Manager (Session costs)
+    ☐ [COST-$$] AWS WAF DDoS Protection (Rules + requests)
+    ☐ [COST-$$] AWS Shield Advanced (Fixed monthly + data transfer)
+    ☐ [COST-$$] KMS Encryption (Key management)
+    ☐ [COST-$$] Secrets Manager (Secrets storage + API)
     ☐ Test credential rotation
     ☐ Validate script permissions
+    ☐ [COST-$$] GuardDuty (Threat detection)
+    ☐ [COST-$$] AWS Config Rules (Rule evaluation)
+    ☐ Remove any hardcoded secrets
+    ☐ Implement secure parameter handling
+    ☐ Add security headers
+    ☐ [COST-$$] Security Monitoring (CloudWatch + SNS)
 
 Minecraft Server Setup:
     ✓ Create server installation script
@@ -84,47 +92,54 @@ Minecraft Server Setup:
     ☐ Implement server-side plugins management
     ✓ Set up automated world backups
 
-Monitoring and Maintenance:
+Monitoring and Observability:
     ✓ Add basic CloudWatch logging
-    ☐ Set up CloudWatch alarms
-        ☐ CPU Utilization
-        ☐ Memory Usage
-        ☐ Network Traffic
-        ☐ Disk Usage
-    ☐ Set up detailed monitoring metrics
-    ☐ Configure logging
+    ✓ Configure Lambda function logging
+    ✓ Add detailed token validation logging
+    ☐ [COST-$$] CloudWatch Alarms
+        ☐ CPU Utilization Monitoring
+        ☐ Memory Usage Tracking
+        ☐ Network Traffic Analysis
+        ☐ Disk Usage Monitoring
+    ☐ [COST-$$] Detailed Metrics (Per-instance monitoring)
+    ☐ Configure unified logging
         ☐ System logs
         ☐ Application logs
         ☐ Access logs
-    ☐ Configure CloudWatch dashboards
+        ☐ Security events
+    ☐ [COST-$$] CloudWatch Dashboards (Dashboard hosting)
     ☐ Create health checks
     ☐ Implement auto-recovery
-    ☐ Set up performance metrics dashboard
-    ☐ Implement automated backup monitoring
+    ☐ [COST-$$] Backup Monitoring (CloudWatch + SNS)
 
 Cost Optimization:
-    ☐ Implement instance scheduling
-    ☐ Configure auto-shutdown when inactive
-    ☐ Set up cost alerts
     ✓ Implement resource tagging strategy
+    ☐ [COST-$$] Instance Scheduling (Lambda costs)
+    ☐ [COST-$$] Auto-shutdown System (Lambda + CloudWatch)
+    ☐ Set up cost alerts
     ☐ Configure AWS Budget alerts
     ☐ Implement cost allocation tags
 
 Documentation:
     ✓ Create README.md
     ✓ Document current architecture decisions
+    ✓ Document API endpoints and authentication
     ☐ Create operator manual
     ☐ Document backup/restore procedures
     ☐ Create troubleshooting guide
     ☐ Document scaling procedures
 
-Testing:
+Testing and Quality Assurance:
     ✓ Create terraform validation tests
+    ✓ Test Lambda API authentication
+    ✓ Validate API error handling
     ☐ Set up integration tests
     ☐ Document testing procedures
     ☐ Create load testing scenarios
     ☐ Implement chaos engineering tests
     ☐ Create disaster recovery tests
+    ☐ Test world data persistence
+    ☐ Test server auto-start on reboot
 
 CI/CD Pipeline:
     ✓ Set up GitHub Actions workflow
@@ -134,34 +149,91 @@ CI/CD Pipeline:
     ☐ Set up environment promotion strategy
     ☐ Implement rollback procedures
 
-Performance Optimization:
-    ✓ Configure JVM optimization for Minecraft Java server
-    ✓ Implement server-specific instance sizing
-    ☐ Implement network optimization
-    ☐ Set up CDN for resource distribution
-    ☐ Optimize EBS volume performance
-    ☐ Configure instance CPU credits
-
-GitHub Repository Preparation:
+Repository Management:
     ✓ Update .gitignore for sensitive files
-    ☐ Remove any committed sensitive files from history
     ✓ Add PR template
-    ☐ Set up branch protection rules
+    ✓ Set up branch protection rules
     ✓ Configure GitHub Actions environment secrets
     ✓ Add security scanning for Infrastructure as Code
-    ☐ Set up Dependabot for security updates
     ✓ Add CODEOWNERS file
     ✓ Create contribution guidelines
     ✓ Add security policy file
+    ☐ Remove any committed sensitive files from history
+    ☐ Set up Dependabot for security updates
 
 Security Hardening:
     ☐ Rotate any exposed AWS credentials
     ☐ Remove any hardcoded secrets
-    ☐ Configure AWS KMS for encryption
-    ☐ Set up AWS Secrets Manager
+    ☐ Configure AWS KMS for encryption $$
+    ☐ Set up AWS Secrets Manager $$
     ☐ Implement secure parameter handling
     ☐ Add security headers
-    ☐ Configure AWS WAF rules
-    ☐ Set up security monitoring
-    ☐ Implement AWS Config rules
-    ☐ Set up GuardDuty
+    ☐ Configure AWS WAF rules $$
+    ☐ Set up security monitoring $$
+    ☐ Implement AWS Config rules $$
+    ☐ Set up GuardDuty $$
+
+Server Management API:
+    ✓ Create Lambda function structure
+    ✓ Set up API Gateway endpoint
+    ✓ Implement basic CORS support
+    ✓ Configure IAM roles and policies
+    ✓ Add EC2 instance control
+    ✓ Implement environment variables
+    ✓ Test Lambda deployment in dev
+    ✓ Configure proper secrets management
+        ✓ Evaluate AWS Secrets Manager vs SSM Parameter Store
+        ✓ Implement chosen solution (SSM Parameter Store)
+        ✓ Test secret validation and error handling
+        ☐ Test secret rotation
+    ☐ Production API security
+        ☐ Restrict CORS origins
+        ☐ Add rate limiting
+        ☐ Implement request validation
+        ☐ Add API key requirements
+    ✓ Add monitoring and logging
+        ✓ Set up CloudWatch log groups
+        ✓ Configure error logging
+        ✓ Add request tracking
+        ✓ Set up token validation logging
+    ✓ Create API documentation
+        ✓ Document endpoints
+        ✓ Add usage examples
+        ✓ Include error scenarios
+        ✓ Document security requirements
+    ☐ Add API versioning
+    ☐ Implement API deprecation strategy
+    ☐ Review API documentation for clarity and completeness
+    ☐ Implement additional API features
+        ☐ Add server metrics endpoint
+        ☐ Add backup management endpoint
+        ✓ Add server control endpoint
+        ✓ Add server status endpoint
+        ☐ Add server logs endpoint
+        ☐ Add minecraft server.properties reload endpoint
+        ☐ Add server allowlist management endpoint
+
+Frontend Integration:
+    ☐ Create Vue.js Server Control Component
+        ✓ Define API interface
+        ✓ Plan component structure
+        ☐ Implement start server button
+        ☐ Add server status indicator
+        ☐ Create loading states for actions
+        ☐ Add error handling and user feedback
+        ☐ Implement auto-refresh of server status
+    ☐ Set up AWS Amplify Integration
+        ☐ Configure API client
+        ☐ Set up environment variables
+        ☐ Add authentication for admin operations
+    ☐ Create Admin Interface
+        ☐ Implement secure stop server functionality
+        ☐ Add server metrics display
+        ☐ Create backup management interface
+    ☐ Implement Progressive Web App features
+        ☐ Add offline support
+        ☐ Implement push notifications
+    ☐ Add E2E Tests
+        ☐ Test server control flow
+        ☐ Test error scenarios
+        ☐ Test authentication flows

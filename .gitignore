@@ -46,3 +46,4 @@ secrets.tfvars
 .aws/
 credentials.json
 **/minecraft/worlds/
+commands

@@ -1,3 +1,21 @@
+#  Outputs for the dev environment
+# Server management outputs
+output "server_type" {
+  description = "Type of Minecraft server deployed"
+  value       = var.server_type
+}
+
+output "lambda_function_name" {
+  description = "Name of the Lambda function"
+  value       = module.lambda.function_name
+}
+
+output "api_url" {
+  description = "API Gateway URL"
+  value       = module.lambda.api_url
+}
+
+# Server connection information
 output "minecraft_connect_info" {
   description = "Connection information for the Minecraft server"
   value = var.server_type == "bedrock" ? (
@@ -5,11 +23,6 @@ output "minecraft_connect_info" {
     ) : (
     "Connect to Java server at: ${module.compute.public_ip}:25565"
   )
-}
-
-output "server_type" {
-  description = "Type of Minecraft server deployed"
-  value       = var.server_type
 }
 
 output "ssh_command" {
