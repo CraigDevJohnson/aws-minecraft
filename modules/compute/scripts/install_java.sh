@@ -1,104 +1,196 @@
 #!/bin/bash
+# This script installs Java 21 and Minecraft Java server on an Amazon Linux 2022.03 instance.
 # Ensure script runs with root privileges
 if [ "$(id -u)" -ne 0 ]; then
     echo "This script must be run as root" 
     exec sudo "$0" "$@"
 fi
 
+# Variables
+INSTALL_LOG=/var/log/minecraft/install_java.log
+DNF_PACKAGES=""
+MC_DIR="/opt/minecraft"
+DEBUG=false
+
+# Determine distro
+LINUX_DISTRO=$(grep -oP '^NAME=\K.+' /etc/os-release | tr -d '"')
+if [ "$LINUX_DISTRO" == "Amazon Linux" ]; then
+    log_message "INFO" "Detected Amazon Linux"
+    LINUX_USER="ec2-user"
+elif [ "$LINUX_DISTRO" == "Ubuntu" ]; then
+    log_message "INFO" "Detected Ubuntu"
+    LINUX_USER="ubuntu"
+else
+    log_message "ERROR" "Unsupported Linux distribution: $LINUX_DISTRO"
+    exit 1
+fi
+
 # Create log file and directory with proper permissions
 mkdir -p /var/log/minecraft
-touch /var/log/minecraft/install.log
-chown -R ubuntu:ubuntu /var/log/minecraft
+touch "$INSTALL_LOG"
+if [ "$LINUX_DISTRO" == "Amazon Linux" ]; then
+    chown -R "$LINUX_USER":"$LINUX_USER" /var/log/minecraft
+else
+    chown -R "$LINUX_USER":"$LINUX_USER" /var/log/minecraft
+fi
 chmod -R 755 /var/log/minecraft
-
-# Redirect all output to log file
-exec 1> >(tee -a /var/log/minecraft/install.log)
-exec 2>&1
 
 set -ex  # Exit on error, print commands
 
-echo "[$(date)] Starting Minecraft Java server installation..."
+# logging functions
+log_message() {
+    local level="$1"
+    local message="$2"
+    echo "[$(date)] [$level] $message" | tee -a "$INSTALL_LOG"
+}
 
-# Update package lists
-apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
+debug_message() {
+    if [ "$DEBUG" = true ]; then
+        log_message "DEBUG" "$1"
+    fi
+}
 
-# Add Java 21 repository and install
-add-apt-repository -y ppa:linuxuprising/java
-apt-get update
-echo debconf shared/accepted-oracle-license-v1-3 select true | debconf-set-selections
-DEBIAN_FRONTEND=noninteractive apt-get install -y openjdk-21-jre-headless curl wget
+log_message "INFO" "Starting Minecraft Java server installation..."
 
+# Resolve packages required for installation
+log_message "INFO" "Installing required packages..."
+if [ "$LINUX_DISTRO" == "Amazon Linux" ]; then
+    # Update package lists
+    dnf update -y
+    dnf upgrade -y
+
+    if ! command -v java &> /dev/null; then
+        log_message "INFO" "Java not installed, adding to package list..."
+        DNF_PACKAGES+=" java-21-amazon-corretto-headless"
+    fi
+    # Add jq to package list if not present
+    if ! command -v jq &> /dev/null; then
+        log_message "INFO" "jq not installed, adding to package list..."
+        DNF_PACKAGES+=" jq"
+    fi
+    # Add curl to package list if not present
+    if ! command -v curl &> /dev/null; then
+        log_message "INFO" "curl not installed, adding to package list..."
+        DNF_PACKAGES+=" curl"
+    fi
+    # Add wget to package list if not present
+    if ! command -v wget &> /dev/null; then
+        log_message "INFO" "wget not installed, adding to package list..."
+        DNF_PACKAGES+=" wget"
+    fi
+    # Add AWS CLI to package list if not present (required for getting tags)
+    if ! command -v aws &> /dev/null; then
+        log_message "INFO" "aws-cli not installed, adding to package list..."
+        DNF_PACKAGES+=" aws-cli"
+    fi
+
+    # Install required packages and verify installation
+    if [[ "$DNF_PACKAGES" =~ [^[:space:]] ]]; then
+        log_message "INFO" "Installing required dnf packages ($DNF_PACKAGES)..."
+        dnf install -y $DNF_PACKAGES
+    else
+        debug_message "No DNF packages to install"
+    fi
+    JAVA_VERSION=$(java -version 2>&1)
+    JQ_VERSION=$(jq --version)
+    CURL_VERSION=$(curl --version | head -n 1)
+    WGET_VERSION=$(wget --version | head -n 1)
+    AWS_CLI_VERSION=$(aws --version 2>&1)
+    if [ -n "$JAVA_VERSION" ] && [ -n "$JQ_VERSION" ] && [ -n "$CURL_VERSION" ] && [ -n "$WGET_VERSION" ] && [ -n "$AWS_CLI_VERSION" ]; then
+        log_message "INFO" "Verified all required packages are present"
+        debug_message "Java version: $JAVA_VERSION"
+        debug_message "JQ version: $JQ_VERSION"
+        debug_message "Curl version: $CURL_VERSION"
+        debug_message "Wget version: $WGET_VERSION"
+        debug_message "AWS CLI version: $AWS_CLI_VERSION"
+    else
+        log_message "ERROR" "Failed to verify required packages"
+        exit 1
+    fi
+fi
+
+
+# Get IMDSv2 token for metadata access
+TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" --retry 3 --retry-delay 1 --silent --fail)
+if [ -z "$TOKEN" ]; then
+    log_message "ERROR" "Failed to get IMDSv2 token"
+    exit 1
+fi
+
+# Get instance ID and region
+INSTANCE_ID=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" "http://169.254.169.254/latest/meta-data/instance-id")
+REGION=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" "http://169.254.169.254/latest/meta-data/placement/region")
+
+# Get environment from instance tags, default to dev if not found
+ENVIRONMENT=$(aws ec2 describe-tags --region "$REGION" --filters "Name=resource-id,Values=$INSTANCE_ID" "Name=key,Values=Environment" --query "Tags[0].Value" --output text)
+if [ -n "$ENVIRONMENT" ]; then
+    log_message "INFO" "Detected environment: $ENVIRONMENT"
+else
+    log_message "INFO" "Environment tag not found, defaulting to 'dev'"
+    ENVIRONMENT="dev"
+fi
+
+if [ "$ENVIRONMENT" = "dev" ]; then
+    DEBUG=true
+fi
+
+log_message "INFO" "Creating Minecraft directory ($MC_DIR)..."
 # Create minecraft directory
-mkdir -p /opt/minecraft
-cd /opt/minecraft
-
+mkdir -p "$MC_DIR"
+cd "$MC_DIR"
+log_message "INFO" "Minecraft directory created and set as working directory"
 # Download Java server with retry logic
 MAX_RETRIES=3
 RETRY_COUNT=0
-DOWNLOAD_URL="https://piston-data.mojang.com/v1/objects/4707d00eb834b446575d89a61a11b5d548d8c001/server.jar"
+# Fetch latest version manifest and extract the latest release version and download URL
+log_message "INFO" "Fetching latest Minecraft server version..."
+VERSION_MANIFEST=$(curl -s https://launchermeta.mojang.com/mc/game/version_manifest.json)
+LATEST_RELEASE=$(echo "$VERSION_MANIFEST" | jq -r '.latest.release')
+VERSION_URL=$(echo "$VERSION_MANIFEST" | jq -r --arg VERSION "$LATEST_RELEASE" '.versions[] | select(.id==$VERSION) | .url')
+DOWNLOAD_URL=$(curl -s "$VERSION_URL" | jq -r '.downloads.server.url')
 
-echo "[$(date)] Downloading Minecraft Java server..."
+debug_message "INFO" "Latest version: $LATEST_RELEASE"
+debug_message "INFO" "Download URL: $DOWNLOAD_URL"
+
+log_message "INFO" "Downloading Minecraft Java server..."
 while [ "${RETRY_COUNT}" -lt "${MAX_RETRIES}" ]; do
     if wget --no-verbose -O server.jar "${DOWNLOAD_URL}"; then
-        echo "[$(date)] Download successful"
+        log_message "INFO" "Download successful"
         break
     fi
     RETRY_COUNT=$((RETRY_COUNT + 1))
-    echo "[$(date)] Download attempt ${RETRY_COUNT} failed, retrying in 5 seconds..."
+    log_message "WARNING" "Download attempt ${RETRY_COUNT} failed, retrying in 5 seconds..."
     sleep 5
 done
 
 if [ "${RETRY_COUNT}" -eq "${MAX_RETRIES}" ]; then
-    echo "[$(date)] Failed to download server after ${MAX_RETRIES} attempts"
+    log_message "ERROR" "Failed to download server after ${MAX_RETRIES} attempts"
     exit 1
 fi
 
 # Accept EULA
 echo "eula=true" > eula.txt
 
-# Create server.properties with optimized settings
-cat > /opt/minecraft/server.properties <<'EOF'
-server-port=25565
-max-players=10
-gamemode=survival
-difficulty=normal
-allow-flight=false
-view-distance=8
-simulation-distance=8
-spawn-protection=16
-max-world-size=29999984
-network-compression-threshold=256
-enable-jmx-monitoring=false
-enable-rcon=false
-enable-query=false
-enable-status=true
-enforce-secure-profile=true
-online-mode=true
-prevent-proxy-connections=false
-use-native-transport=true
-motd=AWS Minecraft Java Server
-white-list=false
-enforce-whitelist=false
-broadcast-rcon-to-ops=true
-spawn-monsters=true
-spawn-animals=true
-spawn-npcs=true
-EOF
+# Copy server.properties files
+cp /tmp/java.properties /opt/minecraft/server.properties
 
 # Set correct permissions
-chown -R ubuntu:ubuntu /opt/minecraft
+if [ "$LINUX_DISTRO" == "Amazon Linux" ]; then
+    chown -R ec2-user:ec2-user /opt/minecraft
+else
+    chown -R ubuntu:ubuntu /opt/minecraft
+fi
 chmod -R 755 /opt/minecraft
 
-# Create and configure service
-cat > /etc/systemd/system/minecraft.service <<'EOF'
+# Create and configure service with environment-specific memory settings
+cat > /etc/systemd/system/minecraft.service <<EOF
 [Unit]
-Description=Minecraft Java Server
+Description=Minecraft Java Server (${ENVIRONMENT})
 After=network.target
 
 [Service]
 Type=simple
-User=ubuntu
+User=ec2-user
 WorkingDirectory=/opt/minecraft
 ExecStart=/usr/bin/java -Xmx1024M -Xms512M -XX:+UseG1GC -XX:+ParallelRefProcEnabled \
     -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC \
@@ -124,8 +216,8 @@ fs.file-max = 65535
 EOF
 
 cat >> /etc/security/limits.conf <<'EOF'
-ubuntu soft nofile 65535
-ubuntu hard nofile 65535
+ec2-user soft nofile 65535
+ec2-user hard nofile 65535
 EOF
 
 sysctl -p
@@ -135,4 +227,4 @@ systemctl daemon-reload
 systemctl enable minecraft
 systemctl start minecraft
 
-echo "[$(date)] Installation completed successfully"
+log_message "INFO" "Installation completed successfully in ${ENVIRONMENT} environment"

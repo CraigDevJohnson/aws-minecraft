@@ -8,65 +8,6 @@ terraform {
   }
 }
 
-# Create a backup vault for Minecraft world data
-resource "aws_backup_vault" "minecraft" {
-  name          = "minecraft-${var.environment}-backup-vault"
-  force_destroy = true
-
-  tags = {
-    Environment = var.environment
-    Project     = "minecraft"
-  }
-
-  lifecycle {
-    prevent_destroy = true
-  }
-}
-
-# Set up backup plan with daily and weekly backups
-resource "aws_backup_plan" "minecraft" {
-  name = "minecraft-${var.environment}-backup-plan"
-
-  rule {
-    rule_name         = "daily_backup"
-    target_vault_name = aws_backup_vault.minecraft.name
-    schedule          = "cron(0 5 ? * * *)" # Daily at 5 AM UTC
-
-    lifecycle {
-      delete_after = var.backup_retention_days
-    }
-
-    # Add completion window and start window
-    completion_window = "120" # 2 hours
-    start_window      = "60"  # 1 hour
-  }
-
-  rule {
-    rule_name         = "weekly_backup"
-    target_vault_name = aws_backup_vault.minecraft.name
-    schedule          = "cron(0 5 ? * 1 *)" # Weekly on Sunday at 5 AM UTC
-
-    lifecycle {
-      delete_after = var.weekly_backup_retention_days
-    }
-
-    completion_window = "180" # 3 hours
-    start_window      = "60"  # 1 hour
-  }
-
-  tags = {
-    Environment = var.environment
-    Project     = "minecraft"
-  }
-
-  lifecycle {
-    prevent_destroy = true
-    ignore_changes = [
-      tags["CreatedAt"]
-    ]
-  }
-}
-
 # Create IAM role for AWS Backup with comprehensive permissions
 resource "aws_iam_role" "backup" {
   name = "minecraft-${var.environment}-backup-role"
@@ -138,12 +79,92 @@ resource "aws_iam_role_policy" "backup_permissions" {
           "backup:StartBackupJob",
           "backup:StopBackupJob",
           "backup:TagResource",
-          "backup:UntagResource"
+          "backup:UntagResource",
+          "backup-storage:*"
         ]
-        Resource = "arn:aws:backup:us-west-2:*:backup-vault:minecraft-${var.environment}-backup-vault"
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:CreateKey",
+          "kms:CreateAlias",
+          "kms:DeleteAlias",
+          "kms:Decrypt",
+          "kms:DescribeKey",
+          "kms:EnableKey",
+          "kms:GenerateDataKey",
+          "kms:ListAliases",
+          "kms:ListKeys",
+          "kms:CreateGrant",
+          "kms:RevokeGrant",
+          "kms:ListGrants",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKeyWithoutPlaintext"
+        ]
+        Resource = "*"
       }
     ]
   })
+}
+
+# Create a backup vault for Minecraft world data
+resource "aws_backup_vault" "minecraft" {
+  name          = "minecraft-${var.environment}-backup-vault"
+  force_destroy = true
+
+  tags = {
+    Environment = var.environment
+    Project     = "minecraft"
+  }
+
+  lifecycle {
+    prevent_destroy = false
+  }
+}
+
+# Set up backup plan with daily and weekly backups
+resource "aws_backup_plan" "minecraft" {
+  name = "minecraft-${var.environment}-backup-plan"
+
+  rule {
+    rule_name         = "daily_backup"
+    target_vault_name = aws_backup_vault.minecraft.name
+    schedule          = "cron(0 5 ? * * *)" # Daily at 5 AM UTC
+
+    lifecycle {
+      delete_after = var.backup_retention_days
+    }
+
+    # Add completion window and start window
+    completion_window = "120" # 2 hours
+    start_window      = "60"  # 1 hour
+  }
+
+  rule {
+    rule_name         = "weekly_backup"
+    target_vault_name = aws_backup_vault.minecraft.name
+    schedule          = "cron(0 5 ? * 1 *)" # Weekly on Sunday at 5 AM UTC
+
+    lifecycle {
+      delete_after = var.weekly_backup_retention_days
+    }
+
+    completion_window = "180" # 3 hours
+    start_window      = "60"  # 1 hour
+  }
+
+  tags = {
+    Environment = var.environment
+    Project     = "minecraft"
+  }
+
+  lifecycle {
+    prevent_destroy = false
+    ignore_changes = [
+      tags["CreatedAt"]
+    ]
+  }
 }
 
 # Create backup selection with enhanced configuration

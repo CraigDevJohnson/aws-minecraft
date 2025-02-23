@@ -1,18 +1,22 @@
 #!/bin/bash
 set -e
 
-# Constants for terraform template variables - single $
+# Constants for OpenTofu template variables
 IMDS_ENDPOINT="${imds_endpoint}"
 IMDS_TOKEN_TTL="${imds_token_ttl}"
 BUCKET_NAME="${bucket_name}"
-INSTALL_SCRIPT="${install_key}"
+JAVA_INSTALL_SCRIPT="${java_install_script}"
+BEDROCK_INSTALL_SCRIPT="${bedrock_install_script}"
 RUN_SERVER_SCRIPT="${run_server_script}"
 WORLD_BACKUP_SCRIPT="${world_backup_script}"
 VALIDATE_SCRIPT="${validate_script}"
 TEST_SERVER_SCRIPT="${test_server_script}"
 TEST_WORLD_BACKUP_SCRIPT="${test_world_backup_script}"
+BEDROCK_PROPERTIES="${bedrock_properties}"
+JAVA_PROPERTIES="${java_properties}"
 SERVER_TYPE="${server_type}"
 CLOUD_INIT_OUTPUT_LOG="/var/log/cloud-init-output.log"
+DNF_PACKAGES=""
 APT_PACKAGES="jq curl"
 SNAP_AWSCLI="aws-cli"
 
@@ -21,8 +25,9 @@ SNAP_AWSCLI="aws-cli"
 DEBUG=true
 # exec 1> >(tee -a /var/log/cloud-init-output.log)
 # exec 2>&1
-# set -x
+set -x
 
+# logging functions
 log_message() {
     local level="$1"
     local message="$2"
@@ -38,32 +43,118 @@ debug_message() {
 # Script start
 log_message "INFO" "Starting Minecraft server setup..."
 
-# Install required packages and verify installation
-log_message "INFO" "Installing required apt-get packages ($APT_PACKAGES)..."
-apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y $APT_PACKAGES
-CURL_VERSION=$(curl --version | head -n 1)
-JQ_VERSION=$(jq --version)
-if [ -n "$CURL_VERSION" ] && [ -n "$JQ_VERSION" ]; then
-    log_message "INFO" "Installed $APT_PACKAGES packages successfully"
-    debug_message "JQ version: $JQ_VERSION"
-    debug_message "Curl version: $CURL_VERSION"
+# Determine distro
+LINUX_DISTRO=$(grep -oP '^NAME=\K.+' /etc/os-release | tr -d '"')
+if [ "$LINUX_DISTRO" == "Amazon Linux" ]; then
+    log_message "INFO" "Detected Amazon Linux"
+elif [ "$LINUX_DISTRO" == "Ubuntu" ]; then
+    log_message "INFO" "Detected Ubuntu"
 else
-    log_message "ERROR" "Failed to install required packages"
+    log_message "ERROR" "Unsupported Linux distribution: $LINUX_DISTRO"
     exit 1
 fi
 
-# Install AWS CLI v2
-log_message "INFO" "Installing AWS CLI..."
-snap install $SNAP_AWSCLI --classic >/dev/null 2>&1
-AWSCLI_VERSION=$(aws --version)
-if [ -n "$AWSCLI_VERSION" ]; then
-    log_message "INFO" "AWS CLI installed successfully"
-    debug_message "AWS CLI version: $AWSCLI_VERSION"
-else
-    log_message "ERROR" "Failed to install AWS CLI"
-    exit 1
+# Resolve packages required for the detected Linux distribution
+if [ "$LINUX_DISTRO" == "Amazon Linux" ]; then
+    log_message "INFO" "Amazon Linux detected, installing required packages..."
+    # Update package lists
+    dnf update -y
+    dnf upgrade -y
+
+    if ! command -v java &> /dev/null; then
+        log_message "INFO" "Java not installed, adding to package list..."
+        DNF_PACKAGES+=" java-21-amazon-corretto-headless"
+    fi
+    # Add jq to package list if not present
+    if ! command -v jq &> /dev/null; then
+        log_message "INFO" "jq not installed, adding to package list..."
+        DNF_PACKAGES+=" jq"
+    fi
+    # Add curl to package list if not present
+    if ! command -v curl &> /dev/null; then
+        log_message "INFO" "curl not installed, adding to package list..."
+        DNF_PACKAGES+=" curl"
+    fi
+    # Add wget to package list if not present
+    if ! command -v wget &> /dev/null; then
+        log_message "INFO" "wget not installed, adding to package list..."
+        DNF_PACKAGES+=" wget"
+    fi
+    # Add AWS CLI to package list if not present (required for getting tags)
+    if ! command -v aws &> /dev/null; then
+        log_message "INFO" "aws-cli not installed, adding to package list..."
+        DNF_PACKAGES+=" aws-cli"
+    fi
+
+    # Install required packages and verify installation
+    if [[ "$DNF_PACKAGES" =~ [^[:space:]] ]]; then
+        log_message "INFO" "Installing required dnf packages ($DNF_PACKAGES)..."
+        dnf install -y $DNF_PACKAGES
+    else
+        debug_message "No DNF packages to install"
+    fi
+    JAVA_VERSION=$(java -version 2>&1)
+    JQ_VERSION=$(jq --version)
+    CURL_VERSION=$(curl --version | head -n 1)
+    WGET_VERSION=$(wget --version | head -n 1)
+    AWS_CLI_VERSION=$(aws --version 2>&1)
+    if [ -n "$JAVA_VERSION" ] && [ -n "$JQ_VERSION" ] && [ -n "$CURL_VERSION" ] && [ -n "$WGET_VERSION" ] && [ -n "$AWS_CLI_VERSION" ]; then
+        log_message "INFO" "Verified all required packages are present"
+        debug_message "Java version: $JAVA_VERSION"
+        debug_message "JQ version: $JQ_VERSION"
+        debug_message "Curl version: $CURL_VERSION"
+        debug_message "Wget version: $WGET_VERSION"
+        debug_message "AWS CLI version: $AWS_CLI_VERSION"
+    else
+        log_message "ERROR" "Failed to verify required packages"
+        exit 1
+    fi
 fi
+
+# Resolve Ubuntu required packages
+if [ "$LINUX_DISTRO" == "Ubuntu" ]; then
+    log_message "INFO" "Amazon Linux detected, installing required packages..."
+    # Install required packages and verify installation
+    apt-get update
+    apt-get upgrade -y
+
+    # Add jq to package list if not present
+    if ! command -v jq &> /dev/null; then
+        log_message "INFO" "jq not installed, adding to package list..."
+        APT_PACKAGES+=" jq"
+    fi
+    # Add curl to package list if not present
+    if ! command -v curl &> /dev/null; then
+        log_message "INFO" "curl not installed, adding to package list..."
+        APT_PACKAGES+=" curl"
+    fi
+
+    log_message "INFO" "Installing required apt packages ($APT_PACKAGES)..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y $APT_PACKAGES
+    CURL_VERSION=$(curl --version | head -n 1)
+    JQ_VERSION=$(jq --version)
+    if [ -n "$CURL_VERSION" ] && [ -n "$JQ_VERSION" ]; then
+        log_message "INFO" "Installed $APT_PACKAGES packages successfully"
+        debug_message "JQ version: $JQ_VERSION"
+        debug_message "Curl version: $CURL_VERSION"
+    else
+        log_message "ERROR" "Failed to install required packages"
+        exit 1
+    fi
+
+    # Install AWS CLI v2
+    log_message "INFO" "Installing AWS CLI via snap..."
+    snap install $SNAP_AWSCLI --classic >/dev/null 2>&1
+    AWSCLI_VERSION=$(aws --version)
+    if [ -n "$AWSCLI_VERSION" ]; then
+        log_message "INFO" "AWS CLI installed successfully"
+        debug_message "AWS CLI version: $AWSCLI_VERSION"
+    else
+        log_message "ERROR" "Failed to install AWS CLI"
+        exit 1
+    fi
+fi
+log_message "INFO" "All required packages installed successfully"
 
 # Function to find the EBS device
 find_ebs_device() {
@@ -139,8 +230,13 @@ done
 # Verify mount and set permissions
 if mountpoint -q /mnt/minecraft_data; then
     log_message "INFO" "Setting up permissions for mounted volume..."
-    chown -R ubuntu:ubuntu /mnt/minecraft_data
-    chmod 755 /mnt/minecraft_data
+    if [ "$LINUX_DISTRO" == "Amazon Linux" ]; then
+        chown -R ec2-user:ec2-user /mnt/minecraft_data
+    fi
+    if [ "$LINUX_DISTRO" == "Ubuntu" ]; then
+        chown -R ubuntu:ubuntu /mnt/minecraft_data
+    fi
+    chmod 755 /mnt/minecraft_data    
 else
     log_message "ERROR" "Mount verification failed"
     exit 1
@@ -162,7 +258,12 @@ mkdir -p /var/log/minecraft/test
 
 # Set permissions
 log_message "INFO" "Setting directory permissions..."
-chown -R ubuntu:ubuntu /opt/minecraft /mnt/minecraft_data /var/log/minecraft
+if [ "$LINUX_DISTRO" == "Amazon Linux" ]; then
+    chown -R ec2-user:ec2-user /opt/minecraft /mnt/minecraft_data /var/log/minecraft
+fi
+if [ $LINUX_DISTRO == "Ubuntu" ]; then
+    chown -R ubuntu:ubuntu /opt/minecraft /mnt/minecraft_data /var/log/minecraft
+fi
 chmod 755 /opt/minecraft /mnt/minecraft_data /var/log/minecraft
 
 # Create symbolic links
@@ -193,17 +294,26 @@ fi
 # Configure AWS CLI region
 aws configure set region "$REGION"
 
-# Download and setup scripts
-log_message "INFO" "Downloading scripts from S3..."
+# Download and setup files
+log_message "INFO" "Downloading files from S3..."
 
 # Create test directory
 mkdir -p /opt/minecraft/test
-chown -R ubuntu:ubuntu /opt/minecraft/test
+if [ "$LINUX_DISTRO" == "Amazon Linux" ]; then
+    chown -R ec2-user:ec2-user /opt/minecraft/test
+fi
+if [ "$LINUX_DISTRO" == "Ubuntu" ]; then
+    chown -R ubuntu:ubuntu /opt/minecraft/test
+fi
 chmod 755 /opt/minecraft/test
 
-# Download install script
-aws s3 cp "s3://$BUCKET_NAME/$INSTALL_SCRIPT" /tmp/install.sh
-chmod +x /tmp/install.sh
+# Download java install script
+aws s3 cp "s3://$BUCKET_NAME/$JAVA_INSTALL_SCRIPT" /tmp/java_install.sh
+chmod +x /tmp/java_install.sh
+
+# Download bedrock install script
+aws s3 cp "s3://$BUCKET_NAME/$BEDROCK_INSTALL_SCRIPT" /tmp/bedrock_install.sh
+chmod +x /tmp/bedrock_install.sh
 
 # Download server run script
 aws s3 cp "s3://$BUCKET_NAME/$RUN_SERVER_SCRIPT" /opt/minecraft/run_server.sh
@@ -214,25 +324,44 @@ aws s3 cp "s3://$BUCKET_NAME/$WORLD_BACKUP_SCRIPT" /opt/minecraft/world_backup.s
 chmod +x /opt/minecraft/world_backup.sh
 
 # Download test scripts
-log_message "INFO" "Downloading test server script..."
+debug_message "Downloading test server script..."
 aws s3 cp "s3://$BUCKET_NAME/$TEST_SERVER_SCRIPT" /opt/minecraft/test/test_server.sh
 chmod +x /opt/minecraft/test/test_server.sh
 
-log_message "INFO" "Downloading validation script..."
+debug_message "Downloading validation script..."
 aws s3 cp "s3://$BUCKET_NAME/$VALIDATE_SCRIPT" /opt/minecraft/test/validate_all.sh
 chmod +x /opt/minecraft/test/validate_all.sh
 
-log_message "INFO" "Downloading backup test script..."
+debug_message "Downloading backup test script..."
 aws s3 cp "s3://$BUCKET_NAME/$TEST_WORLD_BACKUP_SCRIPT" /opt/minecraft/test/test_world_backup.sh
 chmod +x /opt/minecraft/test/test_world_backup.sh
 
+# Download server properties
+log_message "INFO" "Downloading server properties..."
+aws s3 cp "s3://$BUCKET_NAME/$JAVA_PROPERTIES" /tmp/$JAVA_PROPERTIES
+aws s3 cp "s3://$BUCKET_NAME/$BEDROCK_PROPERTIES" /tmp/$BEDROCK_PROPERTIES
+
+
 # Setup logging directory
 mkdir -p /var/log/minecraft/test
-chown -R ubuntu:ubuntu /var/log/minecraft
+if [ "$LINUX_DISTRO" == "Amazon Linux" ]; then
+    chown -R ec2-user:ec2-user /var/log/minecraft
+fi
+if [ "$LINUX_DISTRO" == "Ubuntu" ]; then
+    chown -R ubuntu:ubuntu /var/log/minecraft
+fi 
 
 # Run server installation
 log_message "INFO" "Running server installation script..."
-/tmp/install.sh "$SERVER_TYPE"
+if [ "$SERVER_TYPE" = "java" ]; then
+    /tmp/java_install.sh
+elif [ "$SERVER_TYPE" = "bedrock" ]; then
+    /tmp/bedrock_install.sh
+else
+    log_message "ERROR" "Invalid server type: $SERVER_TYPE"
+    exit 1
+fi
+log_message "INFO" "Server installation completed successfully"
 
 # Move world data if needed
 log_message "INFO" "Checking for world data in persistent storage..."
@@ -245,27 +374,12 @@ fi
 log_message "INFO" "World data already in persistent storage"
 
 # Setup backup cron
-echo "0 0 * * * ubuntu /opt/minecraft/world_backup.sh" > /etc/cron.d/minecraft-world-backup
-
-# Create systemd service
-log_message "INFO" "Creating systemd service..."
-cat > /etc/systemd/system/minecraft.service << 'EOF'
-[Unit]
-Description=Minecraft Server
-After=network.target
-
-[Service]
-User=ubuntu
-WorkingDirectory=/opt/minecraft
-ExecStart=/opt/minecraft/run_server.sh
-Restart=always
-RestartSec=10
-StandardOutput=append:/var/log/minecraft/server.log
-StandardError=append:/var/log/minecraft/server.log
-
-[Install]
-WantedBy=multi-user.target
-EOF
+if [ "$LINUX_DISTRO" == "Amazon Linux" ]; then
+    echo "0 0 * * * ec2-user /opt/minecraft/world_backup.sh" > /etc/cron.d/minecraft-world-backup
+fi
+if [ "$LINUX_DISTRO" == "Ubuntu" ]; then
+    echo "0 0 * * * ubuntu /opt/minecraft/world_backup.sh" > /etc/cron.d/minecraft-world-backup
+fi
 
 # Create wait-for-service function before validation
 wait_for_service() {
@@ -300,21 +414,32 @@ if wait_for_service; then
     ENVIRONMENT=$(aws ec2 describe-tags --filters "Name=resource-id,Values=$INSTANCE_ID" "Name=key,Values=Environment" --query "Tags[0].Value" --output text)
     
     export MINECRAFT_ENVIRONMENT="$${ENVIRONMENT:-dev}"
-    if sudo -u ubuntu /opt/minecraft/test/validate_all.sh "$IMDS_ENDPOINT" "$IMDS_TOKEN_TTL"; then
+    if [ "$LINUX_DISTRO" == "Amazon Linux" ]; then
+        sudo -u ec2-user /opt/minecraft/test/validate_all.sh "$IMDS_ENDPOINT" "$IMDS_TOKEN_TTL"
+    fi
+    if [ "$LINUX_DISTRO" == "Ubuntu" ]; then
+        sudo -u ubuntu /opt/minecraft/test/validate_all.sh "$IMDS_ENDPOINT" "$IMDS_TOKEN_TTL"
+    fi
+    if [ $? -eq 0 ]; then
         log_message "INFO" "Initial validation succeeded"
     else
         log_message "WARNING" "Initial validation failed, retrying after 30s..."
         sleep 30
-        if sudo -u ubuntu /opt/minecraft/test/validate_all.sh "$IMDS_ENDPOINT" "$IMDS_TOKEN_TTL"; then
+        if [ "$LINUX_DISTRO" == "Amazon Linux" ]; then
+            sudo -u ec2-user /opt/minecraft/test/validate_all.sh "$IMDS_ENDPOINT" "$IMDS_TOKEN_TTL"
+        fi
+        if [ "$LINUX_DISTRO" == "Ubuntu" ]; then
+            sudo -u ubuntu /opt/minecraft/test/validate_all.sh "$IMDS_ENDPOINT" "$IMDS_TOKEN_TTL"
+        fi
+        if [ $? -eq 0 ]; then
             log_message "INFO" "Retry validation succeeded"
         else
             log_message "ERROR" "Validation failed after retry. Check logs for details"
             exit 1
         fi
-    fi
-else
     log_message "ERROR" "Server failed to become operational"
     exit 1
+    fi
 fi
 
 log_message "INFO" "Server setup completed successfully"

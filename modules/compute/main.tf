@@ -26,37 +26,59 @@ data "aws_ami" "ubuntu" {
   }
 }
 
-locals {
-  script_path = var.server_type == "bedrock" ? "${path.module}/scripts/install_bedrock.sh" : "${path.module}/scripts/install_java.sh"
+data "aws_ami" "amazon_linux" {
+  most_recent = true
+  owners      = ["amazon"]
 
+  filter {
+    name   = "name"
+    values = ["al2023-ami-*-x86_64"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}
+
+locals {
   # Only include script hash in metadata, not filename
   script_names = {
-    "install.sh"           = "install.sh"
+    "install_java.sh"   = "install_java.sh"
+    "install_bedrock.sh" = "install_bedrock.sh"
     "run_server.sh"        = "run_server.sh"
     "world_backup.sh"      = "world_backup.sh"
     "validate_all.sh"      = "validate_all.sh"
     "test_server.sh"       = "test_server.sh"
     "test_world_backup.sh" = "test_world_backup.sh"
+    "java.properties"      = "java.properties"
+    "bedrock.properties"    = "bedrock.properties"
   }
 
   # Add script version as metadata instead of filename
   script_versions = {
-    "install.sh"           = md5(file(local.script_path))
+    "install_java.sh"      = md5(file("${path.module}/scripts/install_java.sh"))
+    "install_bedrock.sh"   = md5(file("${path.module}/scripts/install_bedrock.sh"))
     "run_server.sh"        = md5(file("${path.module}/scripts/run_server.sh"))
     "world_backup.sh"      = md5(file("${path.module}/../storage/scripts/world_backup.sh"))
     "validate_all.sh"      = md5(file("${path.module}/scripts/validate_all.sh"))
     "test_server.sh"       = md5(file("${path.module}/scripts/test_server.sh"))
     "test_world_backup.sh" = md5(file("${path.module}/../storage/scripts/test_world_backup.sh"))
+    "java.properties"      = md5(file("${path.module}/configs/java.properties"))
+    "bedrock.properties"    = md5(file("${path.module}/configs/bedrock.properties"))
   }
 
   # Function to convert Windows line endings to Unix
   script_content = { for k, v in {
-    "install.sh"           = file(local.script_path)
+    "install_java.sh"      = file("${path.module}/scripts/install_java.sh")
+    "install_bedrock.sh"   = file("${path.module}/scripts/install_bedrock.sh")
     "run_server.sh"        = file("${path.module}/scripts/run_server.sh")
     "world_backup.sh"      = file("${path.module}/../storage/scripts/world_backup.sh")
     "validate_all.sh"      = file("${path.module}/scripts/validate_all.sh")
     "test_server.sh"       = file("${path.module}/scripts/test_server.sh")
     "test_world_backup.sh" = file("${path.module}/../storage/scripts/test_world_backup.sh")
+    "java.properties"      = file("${path.module}/configs/java.properties")
+    "bedrock.properties"    = file("${path.module}/configs/bedrock.properties")
   } : k => base64encode(replace(v, "\r\n", "\n")) }
 }
 
@@ -66,7 +88,7 @@ resource "aws_s3_bucket" "scripts" {
   force_destroy = true
 
   lifecycle {
-    prevent_destroy = true # Prevent accidental deletion of script bucket
+    prevent_destroy = false # Prevent accidental deletion of script bucket
   }
 }
 
@@ -204,6 +226,11 @@ resource "aws_iam_role_policy" "minecraft_server" {
         "Action" : [
           "backup:StartBackupJob",
           "backup:DescribeBackupVault",
+          "backup:CreateBackupVault",
+          "backup:DeleteBackupVault",
+          "backup:GetBackupVaultAccessPolicy",
+          "backup:PutBackupVaultAccessPolicy",
+          "backup:DeleteBackupVaultAccessPolicy",
           "backup:GetBackupPlan",
           "backup:GetBackupSelection",
           "backup:ListBackupJobs",
@@ -211,6 +238,20 @@ resource "aws_iam_role_policy" "minecraft_server" {
           "backup:ListRecoveryPointsByBackupVault",
           "backup:ListBackupPlans",
           "backup:ListBackupSelections"
+        ],
+        "Effect" : "Allow",
+        "Resource" : "*"
+      },
+      {
+        "Action" : [
+          "kms:CreateKey",
+          "kms:CreateAlias",
+          "kms:DeleteAlias",
+          "kms:Decrypt",
+          "kms:DescribeKey",
+          "kms:GenerateDataKey",
+          "kms:ListAliases",
+          "kms:ListKeys"
         ],
         "Effect" : "Allow",
         "Resource" : "*"
@@ -237,7 +278,8 @@ resource "aws_iam_role_policy" "minecraft_server" {
       },
       {
         "Action" : [
-          "iam:GetRole"
+          "iam:GetRole",
+          "iam:PassRole"
         ],
         "Effect" : "Allow",
         "Resource" : "arn:aws:iam::*:role/minecraft-*-backup-role"
@@ -264,7 +306,7 @@ resource "aws_ebs_volume" "minecraft_data" {
   }
 
   lifecycle {
-    prevent_destroy = true # Prevent accidental destruction of world data
+    prevent_destroy = false # Prevent accidental destruction of world data
     ignore_changes = [
       tags["CreatedAt"]
     ]
@@ -272,7 +314,7 @@ resource "aws_ebs_volume" "minecraft_data" {
 }
 
 resource "aws_instance" "minecraft" {
-  ami               = data.aws_ami.ubuntu.id
+  ami               = var.server_type == "java" ? data.aws_ami.amazon_linux.id : data.aws_ami.ubuntu.id
   instance_type     = var.instance_type
   subnet_id         = var.subnet_id
   availability_zone = var.availability_zone
@@ -291,12 +333,15 @@ resource "aws_instance" "minecraft" {
     {
       server_type              = var.server_type
       bucket_name              = aws_s3_bucket.scripts.id
-      install_key              = local.script_names["install.sh"]
-      run_server_script        = local.script_names["run_server.sh"]
-      world_backup_script      = local.script_names["world_backup.sh"]
-      validate_script          = local.script_names["validate_all.sh"]
-      test_server_script       = local.script_names["test_server.sh"]
-      test_world_backup_script = local.script_names["test_world_backup.sh"]
+      java_install_script       = local.script_names["install_java.sh"]
+      bedrock_install_script    = local.script_names["install_bedrock.sh"]
+      run_server_script         = local.script_names["run_server.sh"]
+      world_backup_script       = local.script_names["world_backup.sh"]
+      validate_script           = local.script_names["validate_all.sh"]
+      test_server_script        = local.script_names["test_server.sh"]
+      test_world_backup_script   = local.script_names["test_world_backup.sh"]
+      java_properties           = local.script_names["java.properties"]
+      bedrock_properties        = local.script_names["bedrock.properties"]
       imds_endpoint            = "169.254.169.254"
       imds_token_ttl           = "21600"
       inactivity_minutes       = var.inactivity_shutdown_minutes

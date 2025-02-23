@@ -158,3 +158,11 @@ This project aims to deploy a Minecraft server on AWS using Terraform. The infra
 5. API key authentication testing
 6. Secret rotation procedures
 7. Integration testing with frontend components
+
+
+#### FIX THIS #####
+if [ "$LINUX_DISTRO" == "Amazon Linux" ]; then
+    echo "0 0 * * * ec2-user /opt/minecraft/world_backup.sh" > /etc/cron.d/minecraft-world-backup
+fi
+if [ "$LINUX_DISTRO" == "Ubuntu" ]; then
+    echo "0 0 * * * ubuntu /opt/minecraft/world_backup.sh" > /etc/cron.d/minecraft-world-backup

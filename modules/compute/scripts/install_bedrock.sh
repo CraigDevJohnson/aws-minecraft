@@ -5,10 +5,25 @@ if [ "$(id -u)" -ne 0 ]; then
     exec sudo "$0" "$@"
 fi
 
+# Determine distro
+LINUX_DISTRO=$(grep -oP '^NAME=\K.+' /etc/os-release | tr -d '"')
+if [ "$LINUX_DISTRO" == "Amazon Linux" ]; then
+    log_message "INFO" "Detected Amazon Linux"
+elif [ "$LINUX_DISTRO" == "Ubuntu" ]; then
+    log_message "INFO" "Detected Ubuntu"
+else
+    log_message "ERROR" "Unsupported Linux distribution: $LINUX_DISTRO"
+    exit 1
+fi
+
 # Create log file and directory with proper permissions
 mkdir -p /var/log/minecraft
 touch /var/log/minecraft/install.log
-chown -R ubuntu:ubuntu /var/log/minecraft
+if [ "$LINUX_DISTRO" == "Ubuntu" ]; then
+    chown -R ubuntu:ubuntu /var/log/minecraft
+else
+    chown -R ec2-user:ec2-user /var/log/minecraft
+fi
 chmod -R 755 /var/log/minecraft
 
 # Redirect all output to log file
@@ -23,10 +38,50 @@ timestamp() {
 
 echo "[$(timestamp)] Starting Minecraft Bedrock server installation..."
 
-# Update package lists
-apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
-DEBIAN_FRONTEND=noninteractive apt-get install -y unzip curl wget libcurl4 libssl3
+# Resolve Ubuntu required packages
+if [ "$LINUX_DISTRO" == "Ubuntu" ]; then
+    log_message "INFO" "Amazon Linux detected, installing required packages..."
+    # Install required packages and verify installation
+    apt-get update
+    apt-get upgrade -y
+
+    # Add jq to package list if not present
+    if ! command -v jq &> /dev/null; then
+        log_message "INFO" "jq not installed, adding to package list..."
+        APT_PACKAGES+=" jq"
+    fi
+    # Add curl to package list if not present
+    if ! command -v curl &> /dev/null; then
+        log_message "INFO" "curl not installed, adding to package list..."
+        APT_PACKAGES+=" curl"
+    fi
+
+    log_message "INFO" "Installing required apt packages ($APT_PACKAGES)..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y $APT_PACKAGES
+    CURL_VERSION=$(curl --version | head -n 1)
+    JQ_VERSION=$(jq --version)
+    if [ -n "$CURL_VERSION" ] && [ -n "$JQ_VERSION" ]; then
+        log_message "INFO" "Installed $APT_PACKAGES packages successfully"
+        debug_message "JQ version: $JQ_VERSION"
+        debug_message "Curl version: $CURL_VERSION"
+    else
+        log_message "ERROR" "Failed to install required packages"
+        exit 1
+    fi
+
+    # Install AWS CLI v2
+    log_message "INFO" "Installing AWS CLI via snap..."
+    snap install $SNAP_AWSCLI --classic >/dev/null 2>&1
+    AWSCLI_VERSION=$(aws --version)
+    if [ -n "$AWSCLI_VERSION" ]; then
+        log_message "INFO" "AWS CLI installed successfully"
+        debug_message "AWS CLI version: $AWSCLI_VERSION"
+    else
+        log_message "ERROR" "Failed to install AWS CLI"
+        exit 1
+    fi
+fi
+
 
 # Create minecraft directory
 mkdir -p /opt/minecraft
@@ -95,30 +150,8 @@ LimitNOFILE=65535
 WantedBy=multi-user.target
 EOF
 
-# Configure server settings
-cat > /opt/minecraft/server.properties <<'EOF'
-server-name=Kankberry MC Server
-gamemode=survival
-difficulty=easy
-allow-cheats=false
-max-players=5
-chat-restriction=Dropped
-allow-list=true
-online-mode=true
-server-port=19132
-server-portv6=19133
-view-distance=32
-tick-distance=4
-player-idle-timeout=30
-max-threads=8
-default-player-permission-level=member
-texturepack-required=false
-content-log-file-enabled=true
-compression-threshold=1
-server-authoritative-movement=server-auth
-player-movement-score-threshold=20
-player-movement-action-direction-threshold=0.85
-EOF
+# Copy server.properties files
+cp /tmp/bedrock.properties /opt/minecraft/server.properties
 
 # Configure server allow-list
 cat > /opt/minecraft/allowlist.json <<'EOF'
