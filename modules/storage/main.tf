@@ -8,9 +8,24 @@ terraform {
   }
 }
 
+module "vault_tags" {
+  source        = "../tags"
+  resource_name = "backup-vault"
+}
+
+module "plan_tags" {
+  source        = "../tags"
+  resource_name = "backup-plan"
+}
+
+module "role_tags" {
+  source        = "../tags"
+  resource_name = "backup-role"
+}
+
 # Create IAM role for AWS Backup with comprehensive permissions
 resource "aws_iam_role" "backup" {
-  name = "minecraft-${var.environment}-backup-role"
+  name = "minecraft-${terraform.workspace}-backup-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -24,6 +39,8 @@ resource "aws_iam_role" "backup" {
       }
     ]
   })
+
+  tags = (module.role_tags.tags)
 }
 
 # Attach AWS Backup service role policy
@@ -34,7 +51,7 @@ resource "aws_iam_role_policy_attachment" "backup_service" {
 
 # Add comprehensive backup permissions
 resource "aws_iam_role_policy" "backup_permissions" {
-  name = "minecraft-${var.environment}-backup-permissions"
+  name = "minecraft-${terraform.workspace}-backup-permissions"
   role = aws_iam_role.backup.name
 
   policy = jsonencode({
@@ -110,13 +127,9 @@ resource "aws_iam_role_policy" "backup_permissions" {
 
 # Create a backup vault for Minecraft world data
 resource "aws_backup_vault" "minecraft" {
-  name          = "minecraft-${var.environment}-backup-vault"
+  name          = "minecraft-${terraform.workspace}-backup-vault"
   force_destroy = true
-
-  tags = {
-    Environment = var.environment
-    Project     = "minecraft"
-  }
+  tags          = (module.vault_tags.tags)
 
   lifecycle {
     prevent_destroy = false
@@ -125,7 +138,8 @@ resource "aws_backup_vault" "minecraft" {
 
 # Set up backup plan with daily and weekly backups
 resource "aws_backup_plan" "minecraft" {
-  name = "minecraft-${var.environment}-backup-plan"
+  name = "minecraft-${terraform.workspace}-backup-plan"
+  tags = (module.plan_tags.tags)
 
   rule {
     rule_name         = "daily_backup"
@@ -154,22 +168,14 @@ resource "aws_backup_plan" "minecraft" {
     start_window      = "60"  # 1 hour
   }
 
-  tags = {
-    Environment = var.environment
-    Project     = "minecraft"
-  }
-
   lifecycle {
     prevent_destroy = false
-    ignore_changes = [
-      tags["CreatedAt"]
-    ]
   }
 }
 
 # Create backup selection with enhanced configuration
 resource "aws_backup_selection" "minecraft" {
-  name         = "minecraft-${var.environment}-backup-selection"
+  name         = "minecraft-${terraform.workspace}-backup-selection"
   plan_id      = aws_backup_plan.minecraft.id
   iam_role_arn = aws_iam_role.backup.arn
 
@@ -177,7 +183,7 @@ resource "aws_backup_selection" "minecraft" {
   selection_tag {
     type  = "STRINGEQUALS"
     key   = "Environment"
-    value = var.environment
+    value = terraform.workspace
   }
 
   selection_tag {

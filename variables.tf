@@ -1,25 +1,25 @@
-variable "key_name" {
-  description = "Name of the SSH key pair"
-  type        = string
-  default     = null # Optional, will be set by environment auto.tfvars
-}
-
-variable "environment" {
-  description = "Environment name"
-  type        = string
-  default     = null # Optional, will be set by workspace name
-}
-
 variable "server_type" {
   description = "Type of Minecraft server to deploy (bedrock or java)"
   type        = string
-  default     = "bedrock"
+  default     = "java"
 }
 
 variable "instance_type" {
   description = "EC2 instance type"
   type        = string
-  default     = "t3.small"
+  default     = "t2.micro"
+}
+
+variable "instance_os" {
+  description = "Operating system for the EC2 instance"
+  type        = string
+  default     = "amazon_linux"
+}
+
+variable "instance_ami" {
+  description = "AMI ID for the EC2 instance"
+  type        = string
+  default     = null
 }
 
 variable "instance_state" {
@@ -37,5 +37,5 @@ variable "inactivity_shutdown_minutes" {
 variable "lambda_function_name" {
   description = "Name of the Lambda function"
   type        = string
-  default     = "minecraft-lambda-manager"
+  default     = "minecraft-server-lambda-manager"
 }

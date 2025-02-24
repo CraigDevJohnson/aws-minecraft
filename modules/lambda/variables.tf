@@ -1,14 +1,22 @@
-variable "environment" {
-  description = "Environment name (dev/prod)"
-  type        = string
-}
-
+# Variables for AWS Lambda module configuration.
+# This file contains input variables that parameterize the Lambda function deployment,
+# allowing customization of the function's configuration, permissions, and runtime settings.
 variable "minecraft_instance_id" {
-  description = "ID of the Minecraft EC2 instance to manage"
+  description = "Unique identifier for the Minecraft server instance"
   type        = string
+
+  validation {
+    condition     = length(var.minecraft_instance_id) > 0
+    error_message = "minecraft_instance_id cannot be empty"
+  }
 }
 
 variable "cors_origin" {
   description = "Allowed CORS origin (your Amplify app URL)"
+  type        = string
+}
+
+variable "lambda_function_name" {
+  description = "Name of the Lambda function"
   type        = string
 }

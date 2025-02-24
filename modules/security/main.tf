@@ -31,8 +31,16 @@ locals {
   ]
 }
 
+module "sg_tags" {
+  source        = "../tags"
+  resource_name = "${var.server_type}-sg"
+  additional_tags = {
+    ServerType = var.server_type
+  }
+}
+
 resource "aws_security_group" "minecraft" {
-  name_prefix = "minecraft-${var.environment}-${var.server_type}-"
+  name_prefix = "minecraft-${terraform.workspace}-${var.server_type}-"
   description = "Security group for Minecraft ${var.server_type} server"
   vpc_id      = var.vpc_id
 
@@ -66,7 +74,9 @@ resource "aws_security_group" "minecraft" {
     description = "Allow all outbound traffic"
   }
 
-  tags = {
-    Name = "minecraft-${var.environment}-${var.server_type}-sg"
+  tags = (module.sg_tags.tags)
+
+  lifecycle {
+    prevent_destroy = false
   }
 }

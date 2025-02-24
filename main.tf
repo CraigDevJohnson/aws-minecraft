@@ -1,15 +1,19 @@
+# Environment configuration
 locals {
   environment = terraform.workspace
 }
 
+# Environment-specific module loading
 module "minecraft_environment" {
   source = "./environments/${local.environment}"
 
-  # Pass through variables (these will be overridden by *.auto.tfvars)
-  environment                 = local.environment
-  key_name                    = var.key_name
-  server_type                 = var.server_type
-  instance_type               = var.instance_type
-  inactivity_shutdown_minutes = var.inactivity_shutdown_minutes
-}
+  # Server configuration
+  server_type                = var.server_type
+  instance_type              = var.instance_type
+  instance_os                = var.instance_os
+  instance_state             = var.instance_state
 
+  # Management configuration
+  inactivity_shutdown_minutes = var.inactivity_shutdown_minutes
+  lambda_function_name        = var.lambda_function_name
+}

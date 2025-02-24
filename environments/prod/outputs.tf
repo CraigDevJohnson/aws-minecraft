@@ -27,5 +27,5 @@ output "minecraft_connect_info" {
 
 output "ssh_command" {
   description = "Command to SSH into the server"
-  value       = module.compute.public_ip != null ? "ssh -i ${var.key_name}.pem ubuntu@${module.compute.public_ip}" : "Server IP not available yet"
+  value       = module.compute.public_ip != null ? "ssh -i minecraft-${terraform.workspace}-key.pem ubuntu@${module.compute.public_ip}" : "Server IP not available yet"
 }

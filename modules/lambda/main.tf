@@ -1,3 +1,4 @@
+# OpenTofu configuration for the Minecraft server manager Lambda function and API Gateway
 terraform {
   required_version = ">= 1.6.0"
   required_providers {
@@ -12,6 +13,21 @@ terraform {
   }
 }
 
+module "function_tags" {
+  source        = "../tags"
+  resource_name = "lambda-manager"
+}
+
+module "role_tags" {
+  source        = "../tags"
+  resource_name = "lambda-role"
+}
+
+module "api_tags" {
+  source        = "../tags"
+  resource_name = "api-gateway"
+}
+
 # ZIP the Lambda function code
 data "archive_file" "lambda_zip" {
   type        = "zip"
@@ -22,7 +38,7 @@ data "archive_file" "lambda_zip" {
 # Lambda function for server management
 resource "aws_lambda_function" "minecraft_manager" {
   filename      = data.archive_file.lambda_zip.output_path
-  function_name = "minecraft-${var.environment}-server-manager"
+  function_name = "${var.lambda_function_name}-${terraform.workspace}"
   role          = aws_iam_role.lambda_role.arn
   handler       = "minecraft_server_manager.lambda_handler"
   runtime       = "python3.9"
@@ -31,19 +47,16 @@ resource "aws_lambda_function" "minecraft_manager" {
   environment {
     variables = {
       INSTANCE_ID = var.minecraft_instance_id
-      ENVIRONMENT = var.environment
+      ENVIRONMENT = terraform.workspace
     }
   }
 
-  tags = {
-    Environment = var.environment
-    Project     = "minecraft"
-  }
+  tags = (module.function_tags.tags)
 }
 
 # IAM role for Lambda
 resource "aws_iam_role" "lambda_role" {
-  name = "minecraft-manager-lambda-role-${var.environment}"
+  name = "minecraft-manager-lambda-role-${terraform.workspace}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -57,11 +70,13 @@ resource "aws_iam_role" "lambda_role" {
       }
     ]
   })
+
+  tags = (module.role_tags.tags)
 }
 
 # IAM policy for managing EC2 instance
 resource "aws_iam_role_policy" "lambda_ec2_policy" {
-  name = "minecraft-manager-ec2-policy-${var.environment}"
+  name = "minecraft-manager-ec2-policy-${terraform.workspace}"
   role = aws_iam_role.lambda_role.id
 
   policy = jsonencode({
@@ -99,7 +114,7 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
 
 # Add Secrets Manager permissions
 resource "aws_iam_role_policy" "lambda_secrets" {
-  name = "minecraft-manager-secrets-policy-${var.environment}"
+  name = "minecraft-manager-secrets-policy-${terraform.workspace}"
   role = aws_iam_role.lambda_role.id
 
   policy = jsonencode({
@@ -111,7 +126,7 @@ resource "aws_iam_role_policy" "lambda_secrets" {
           "secretsmanager:GetSecretValue"
         ]
         Resource = [
-          "arn:aws:secretsmanager:*:*:secret:minecraft-${var.environment}-*"
+          "arn:aws:secretsmanager:*:*:secret:minecraft-${terraform.workspace}-*"
         ]
       }
     ]
@@ -120,7 +135,7 @@ resource "aws_iam_role_policy" "lambda_secrets" {
 
 # Add SSM Parameter Store permissions
 resource "aws_iam_role_policy" "lambda_ssm" {
-  name = "minecraft-manager-ssm-policy-${var.environment}"
+  name = "minecraft-manager-ssm-policy-${terraform.workspace}"
   role = aws_iam_role.lambda_role.id
 
   policy = jsonencode({
@@ -132,7 +147,7 @@ resource "aws_iam_role_policy" "lambda_ssm" {
           "ssm:GetParameter"
         ]
         Resource = [
-          "arn:aws:ssm:*:*:parameter/minecraft/${var.environment}/*"
+          "arn:aws:ssm:*:*:parameter/minecraft/${terraform.workspace}/*"
         ]
       }
     ]
@@ -141,7 +156,7 @@ resource "aws_iam_role_policy" "lambda_ssm" {
 
 # HTTP API Gateway v2
 resource "aws_apigatewayv2_api" "minecraft_api" {
-  name          = "minecraft-server-api-${var.environment}"
+  name          = "minecraft-server-api-${terraform.workspace}"
   protocol_type = "HTTP"
   cors_configuration {
     allow_origins = [var.cors_origin]
@@ -149,6 +164,8 @@ resource "aws_apigatewayv2_api" "minecraft_api" {
     allow_headers = ["content-type"]
     max_age       = 300
   }
+
+  tags = (module.api_tags.tags)
 }
 
 resource "aws_apigatewayv2_integration" "lambda_integration" {
@@ -167,7 +184,7 @@ resource "aws_apigatewayv2_route" "minecraft_route" {
 
 resource "aws_apigatewayv2_stage" "minecraft" {
   api_id      = aws_apigatewayv2_api.minecraft_api.id
-  name        = var.environment
+  name        = terraform.workspace
   auto_deploy = true
 }
 

@@ -1,28 +1,31 @@
-variable "environment" {
-  description = "Environment name"
+variable "server_type" {
+  description = "Type of Minecraft server to deploy (bedrock or java)"
   type        = string
-}
-
-variable "key_name" {
-  description = "Name of the SSH key pair"
-  type        = string
+  default     = "java"
 }
 
 variable "instance_type" {
   description = "EC2 instance type"
   type        = string
-  default     = "t3.small"
+  default     = "t2.micro"
 }
 
-variable "server_type" {
-  description = "Type of Minecraft server to deploy (bedrock or java)"
+variable "instance_os" {
+  description = "Operating system for the EC2 instance"
   type        = string
-  default     = "bedrock"
+  default     = "amazon_linux"
+}
 
-  validation {
-    condition     = contains(["bedrock", "java"], var.server_type)
-    error_message = "server_type must be either 'bedrock' or 'java'"
-  }
+variable "instance_ami" {
+  description = "AMI ID for the EC2 instance"
+  type        = string
+  default     = null
+}
+
+variable "instance_state" {
+  description = "Desired state of the EC2 instance (running or stopped)"
+  type        = string
+  default     = "running"
 }
 
 variable "inactivity_shutdown_minutes" {
@@ -34,4 +37,9 @@ variable "inactivity_shutdown_minutes" {
     condition     = var.inactivity_shutdown_minutes >= 0
     error_message = "inactivity_shutdown_minutes must be a non-negative number"
   }
+}
+
+variable "lambda_function_name" {
+  description = "Name of the Lambda function for server management"
+  type        = string
 }

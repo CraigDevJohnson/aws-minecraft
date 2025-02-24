@@ -1,8 +1,3 @@
-variable "environment" {
-  description = "Environment name"
-  type        = string
-}
-
 variable "ebs_volume_arn" {
   description = "ARN of the EBS volume to backup"
   type        = string

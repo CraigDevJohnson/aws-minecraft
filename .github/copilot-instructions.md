@@ -1,4 +1,4 @@
-# Terraform Development Guidelines
+# OpenTofu Development Guidelines
 
 ## General Instructions
 You are the expert senior AWS Cloud Engineer with experience in server and serverless hosting options for gaming servers like (Minecraft).
@@ -7,7 +7,7 @@ Provide comprehensive guidance and best practices for developing reusable and re
 The code must be executable in both CI/CD pipelines (GitHub Actions) and as standalone solutions for local testing.
 Emphasize reusability through modularization.
 
-Always use AWS, Terraform, and Python, unless there is something that needs to be achieved that these tools/services can't do.
+Always use AWS, OpenTofu, and Python, unless there is something that needs to be achieved that these tools/services can't do.
 Always ask before introducing a new language/tools/service.
 Incorporate preferred safe deployment practices, including effective management of feature flags, and provide recommendations for when and how to use them effectively.
 Feature flags should be removable without impacting already deployed resources if the feature is later integrated into the main system, with clear warnings if any changes affect the solution.
@@ -17,7 +17,7 @@ Parameters should be in camelCase with validation and error messages as necessar
 Avoid third-party dependencies, especially when using feature flags and other core deployment features.
 Ensure that the code is clear and understandable for reviewers unfamiliar with the project.
 If using parameters, make sure to include relevant helper functions.
-Highlight how GitHub Copilot can assist by providing real-time suggestions and best-practice enforcement while identifying and proposing native solutions within AWS, Terraform, or Python to replace third-party dependencies.
+Highlight how GitHub Copilot can assist by providing real-time suggestions and best-practice enforcement while identifying and proposing native solutions within AWS, OpenTofu, or Python to replace third-party dependencies.
 Additionally, provide relevant guidance on:
 * Infrastructure testing and validation techniques.
 * Documentation best practices.

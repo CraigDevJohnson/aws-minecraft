@@ -1,8 +1,3 @@
-variable "environment" {
-  description = "Environment name"
-  type        = string
-}
-
 variable "subnet_id" {
   description = "ID of the subnet to launch the instance in"
   type        = string
@@ -19,9 +14,15 @@ variable "instance_type" {
   default     = "t3.medium"
 }
 
-variable "key_name" {
-  description = "Name of the SSH key pair"
+variable "instance_os" {
+  description = "Operating system for the instance (e.g., ubuntu, amazon_linux)"
   type        = string
+  default     = "amazon_linux"
+
+  validation {
+    condition     = contains(["ubuntu", "amazon_linux"], var.instance_os)
+    error_message = "instance_os must be either 'ubuntu' or 'amazon_linux'"
+  }
 }
 
 variable "server_type" {

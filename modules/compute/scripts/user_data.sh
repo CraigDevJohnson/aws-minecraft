@@ -5,8 +5,8 @@ set -e
 IMDS_ENDPOINT="${imds_endpoint}"
 IMDS_TOKEN_TTL="${imds_token_ttl}"
 BUCKET_NAME="${bucket_name}"
-JAVA_INSTALL_SCRIPT="${java_install_script}"
-BEDROCK_INSTALL_SCRIPT="${bedrock_install_script}"
+INSTALL_JAVA_SCRIPT="${install_java_script}"
+INSTALL_BEDROCK_SCRIPT="${install_bedrock_script}"
 RUN_SERVER_SCRIPT="${run_server_script}"
 WORLD_BACKUP_SCRIPT="${world_backup_script}"
 VALIDATE_SCRIPT="${validate_script}"
@@ -308,12 +308,12 @@ fi
 chmod 755 /opt/minecraft/test
 
 # Download java install script
-aws s3 cp "s3://$BUCKET_NAME/$JAVA_INSTALL_SCRIPT" /tmp/java_install.sh
-chmod +x /tmp/java_install.sh
+aws s3 cp "s3://$BUCKET_NAME/$INSTALL_JAVA_SCRIPT" /tmp/install_java.sh
+chmod +x /tmp/install_java.sh
 
 # Download bedrock install script
-aws s3 cp "s3://$BUCKET_NAME/$BEDROCK_INSTALL_SCRIPT" /tmp/bedrock_install.sh
-chmod +x /tmp/bedrock_install.sh
+aws s3 cp "s3://$BUCKET_NAME/$INSTALL_BEDROCK_SCRIPT" /tmp/install_bedrock.sh
+chmod +x /tmp/install_bedrock.sh
 
 # Download server run script
 aws s3 cp "s3://$BUCKET_NAME/$RUN_SERVER_SCRIPT" /opt/minecraft/run_server.sh
@@ -338,8 +338,8 @@ chmod +x /opt/minecraft/test/test_world_backup.sh
 
 # Download server properties
 log_message "INFO" "Downloading server properties..."
-aws s3 cp "s3://$BUCKET_NAME/$JAVA_PROPERTIES" /tmp/$JAVA_PROPERTIES
-aws s3 cp "s3://$BUCKET_NAME/$BEDROCK_PROPERTIES" /tmp/$BEDROCK_PROPERTIES
+aws s3 cp "s3://$BUCKET_NAME/$JAVA_PROPERTIES" /tmp/java.properties
+aws s3 cp "s3://$BUCKET_NAME/$BEDROCK_PROPERTIES" /tmp/bedrock.properties
 
 
 # Setup logging directory
@@ -354,9 +354,9 @@ fi
 # Run server installation
 log_message "INFO" "Running server installation script..."
 if [ "$SERVER_TYPE" = "java" ]; then
-    /tmp/java_install.sh
+    /tmp/install_java.sh
 elif [ "$SERVER_TYPE" = "bedrock" ]; then
-    /tmp/bedrock_install.sh
+    /tmp/install_bedrock.sh
 else
     log_message "ERROR" "Invalid server type: $SERVER_TYPE"
     exit 1

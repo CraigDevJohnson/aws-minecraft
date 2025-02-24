@@ -1,3 +1,5 @@
+# Output configuration file for the Lambda module
+# This file defines the output values that will be exposed from the Lambda module.
 output "api_url" {
   description = "API Gateway URL"
   value       = aws_apigatewayv2_stage.minecraft.invoke_url

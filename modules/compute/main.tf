@@ -42,59 +42,74 @@ data "aws_ami" "amazon_linux" {
 }
 
 locals {
-  # Only include script hash in metadata, not filename
-  script_names = {
-    "install_java.sh"   = "install_java.sh"
-    "install_bedrock.sh" = "install_bedrock.sh"
-    "run_server.sh"        = "run_server.sh"
-    "world_backup.sh"      = "world_backup.sh"
-    "validate_all.sh"      = "validate_all.sh"
-    "test_server.sh"       = "test_server.sh"
-    "test_world_backup.sh" = "test_world_backup.sh"
-    "java.properties"      = "java.properties"
-    "bedrock.properties"    = "bedrock.properties"
+  # Map of files to be imported
+  import_files = {
+    for key, file in local.files :
+    key => {
+      name     = file.name
+      filename = file.filename
+      path     = file.path
+      version  = file.version
+      etag     = md5(file(file.path))
+      content  = base64encode(replace(file(file.path), "\r\n", "\n"))
+      type     = file.type
+    }
   }
 
-  # Add script version as metadata instead of filename
-  script_versions = {
-    "install_java.sh"      = md5(file("${path.module}/scripts/install_java.sh"))
-    "install_bedrock.sh"   = md5(file("${path.module}/scripts/install_bedrock.sh"))
-    "run_server.sh"        = md5(file("${path.module}/scripts/run_server.sh"))
-    "world_backup.sh"      = md5(file("${path.module}/../storage/scripts/world_backup.sh"))
-    "validate_all.sh"      = md5(file("${path.module}/scripts/validate_all.sh"))
-    "test_server.sh"       = md5(file("${path.module}/scripts/test_server.sh"))
-    "test_world_backup.sh" = md5(file("${path.module}/../storage/scripts/test_world_backup.sh"))
-    "java.properties"      = md5(file("${path.module}/configs/java.properties"))
-    "bedrock.properties"    = md5(file("${path.module}/configs/bedrock.properties"))
+  # Map of AMIs based on OS
+  instance_ami = {
+    ubuntu       = data.aws_ami.ubuntu.id
+    amazon_linux = data.aws_ami.amazon_linux.id
   }
-
-  # Function to convert Windows line endings to Unix
-  script_content = { for k, v in {
-    "install_java.sh"      = file("${path.module}/scripts/install_java.sh")
-    "install_bedrock.sh"   = file("${path.module}/scripts/install_bedrock.sh")
-    "run_server.sh"        = file("${path.module}/scripts/run_server.sh")
-    "world_backup.sh"      = file("${path.module}/../storage/scripts/world_backup.sh")
-    "validate_all.sh"      = file("${path.module}/scripts/validate_all.sh")
-    "test_server.sh"       = file("${path.module}/scripts/test_server.sh")
-    "test_world_backup.sh" = file("${path.module}/../storage/scripts/test_world_backup.sh")
-    "java.properties"      = file("${path.module}/configs/java.properties")
-    "bedrock.properties"    = file("${path.module}/configs/bedrock.properties")
-  } : k => base64encode(replace(v, "\r\n", "\n")) }
 }
 
-# Create S3 bucket for scripts with minimal configuration
-resource "aws_s3_bucket" "scripts" {
-  bucket_prefix = "minecraft-${var.environment}-scripts-"
+module "tags" {
+  source = "../tags"
+
+  additional_tags = {
+    ServerType = var.server_type
+    Name       = "minecraft-${terraform.workspace}-${var.server_type}-server"
+  }
+}
+
+module "instance_tags" {
+  source        = "../tags"
+  resource_name = "${var.server_type}-server"
+  additional_tags = {
+    ServerType = var.server_type
+  }
+}
+
+module "ebs_tags" {
+  source        = "../tags"
+  resource_name = "${var.server_type}-data"
+}
+
+module "role_tags" {
+  source        = "../tags"
+  resource_name = "server-role"
+}
+
+module "bucket_tags" {
+  source        = "../tags"
+  resource_name = "file-imports"
+}
+
+# Create S3 bucket for file imports with minimal configuration
+resource "aws_s3_bucket" "file_imports" {
+  bucket_prefix = "minecraft-${terraform.workspace}-file-imports-"
   force_destroy = true
 
   lifecycle {
-    prevent_destroy = false # Prevent accidental deletion of script bucket
+    prevent_destroy = false # Prevent accidental deletion of file imports bucket
   }
+
+  tags = (module.bucket_tags.tags)
 }
 
 # Ensure the bucket is private
-resource "aws_s3_bucket_public_access_block" "scripts" {
-  bucket = aws_s3_bucket.scripts.id
+resource "aws_s3_bucket_public_access_block" "file_imports" {
+  bucket = aws_s3_bucket.file_imports.id
 
   block_public_acls       = true
   block_public_policy     = true
@@ -103,59 +118,68 @@ resource "aws_s3_bucket_public_access_block" "scripts" {
 }
 
 # Configure bucket versioning
-resource "aws_s3_bucket_versioning" "scripts" {
-  bucket = aws_s3_bucket.scripts.id
+resource "aws_s3_bucket_versioning" "file_imports" {
+  bucket = aws_s3_bucket.file_imports.id
   versioning_configuration {
     status = "Disabled" # Changed from "Suspended" to "Disabled"
   }
 }
 
 # Add bucket lifecycle rule to clean up old versions
-resource "aws_s3_bucket_lifecycle_configuration" "scripts" {
-  bucket = aws_s3_bucket.scripts.id
+resource "aws_s3_bucket_lifecycle_configuration" "file_imports" {
+  bucket = aws_s3_bucket.file_imports.id
 
   rule {
     id     = "cleanup_old_versions"
     status = "Enabled"
 
     expiration {
-      days = 1 # Short retention for dev environment
+      # if prod environment, delete old versions after 30 days, otherwise delete after 1 day
+      days = terraform.workspace == "prod" ? 30 : 1 # Set retention based on environment
     }
 
     noncurrent_version_expiration {
-      noncurrent_days = 1
+      noncurrent_days = terraform.workspace == "prod" ? 30 : 1
     }
   }
 }
 
-# Upload scripts to S3 with proper encoding and metadata
-resource "aws_s3_object" "server_scripts" {
-  for_each = local.script_content
+# Upload file_imports to S3 with proper encoding and metadata
+resource "aws_s3_object" "file_imports" {
+  for_each = local.import_files
 
-  bucket         = aws_s3_bucket.scripts.id
-  key            = local.script_names[each.key]
-  content_base64 = each.value
-  content_type   = "text/x-shellscript"
-  etag           = local.script_versions[each.key]
+  bucket         = aws_s3_bucket.file_imports.id
+  key            = each.key
+  content_base64 = each.value.content
+  content_type   = each.value.type
+  etag           = each.value.etag
   force_destroy  = true
 
   metadata = {
-    "version"                   = local.script_versions[each.key]
+    "version"                   = each.value.version
     "content-transfer-encoding" = "base64"
     "permissions"               = "0755"
     "original-filename"         = each.key
   }
+  tags = merge(
+    module.tags.tags,
+    {
+      FileVersion = each.value.version
+    }
+  )
 
   lifecycle {
     ignore_changes = [
-      etag # Only ignore etag changes
+      etag,
+      content_base64,
+      tags_all
     ]
   }
 }
 
 # Add explicit bucket policy
-resource "aws_s3_bucket_policy" "scripts" {
-  bucket = aws_s3_bucket.scripts.id
+resource "aws_s3_bucket_policy" "file_imports" {
+  bucket = aws_s3_bucket.file_imports.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -171,8 +195,8 @@ resource "aws_s3_bucket_policy" "scripts" {
           "s3:ListBucket"
         ]
         Resource = [
-          aws_s3_bucket.scripts.arn,
-          "${aws_s3_bucket.scripts.arn}/*"
+          aws_s3_bucket.file_imports.arn,
+          "${aws_s3_bucket.file_imports.arn}/*"
         ]
       }
     ]
@@ -180,8 +204,8 @@ resource "aws_s3_bucket_policy" "scripts" {
 }
 
 # Add ownership controls
-resource "aws_s3_bucket_ownership_controls" "scripts" {
-  bucket = aws_s3_bucket.scripts.id
+resource "aws_s3_bucket_ownership_controls" "file_imports" {
+  bucket = aws_s3_bucket.file_imports.id
   rule {
     object_ownership = "BucketOwnerPreferred"
   }
@@ -189,7 +213,7 @@ resource "aws_s3_bucket_ownership_controls" "scripts" {
 
 # Create IAM role for EC2 to access S3
 resource "aws_iam_role" "minecraft_server" {
-  name = "minecraft-${var.environment}-server-role"
+  name = "minecraft-${terraform.workspace}-server-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -203,11 +227,17 @@ resource "aws_iam_role" "minecraft_server" {
       }
     ]
   })
+
+  tags = (module.role_tags.tags)
+
+  lifecycle {
+    prevent_destroy = false
+  }
 }
 
-# Allow EC2 to access script bucket and AWS Backup
+# Allow EC2 to access file_imports bucket and AWS Backup
 resource "aws_iam_role_policy" "minecraft_server" {
-  name = "minecraft-${var.environment}-server-policy"
+  name = "minecraft-${terraform.workspace}-server-policy"
   role = aws_iam_role.minecraft_server.id
 
   policy = jsonencode({
@@ -220,7 +250,7 @@ resource "aws_iam_role_policy" "minecraft_server" {
           "s3:GetObjectVersion"
         ],
         "Effect" : "Allow",
-        "Resource" : "arn:aws:s3:::minecraft-*-scripts-*"
+        "Resource" : "arn:aws:s3:::minecraft-*-file_imports-*"
       },
       {
         "Action" : [
@@ -290,7 +320,7 @@ resource "aws_iam_role_policy" "minecraft_server" {
 
 # Create instance profile
 resource "aws_iam_instance_profile" "minecraft_server" {
-  name = "minecraft-${var.environment}-server-profile"
+  name = "minecraft-${terraform.workspace}-server-profile"
   role = aws_iam_role.minecraft_server.name
 }
 
@@ -301,26 +331,21 @@ resource "aws_ebs_volume" "minecraft_data" {
   type              = var.world_data_volume_type
   iops              = var.world_data_volume_type == "gp3" ? var.world_data_volume_iops : null
 
-  tags = {
-    Name = "minecraft-${var.environment}-${var.server_type}-data"
-  }
+  tags = (module.ebs_tags.tags)
 
   lifecycle {
     prevent_destroy = false # Prevent accidental destruction of world data
-    ignore_changes = [
-      tags["CreatedAt"]
-    ]
   }
 }
 
 resource "aws_instance" "minecraft" {
-  ami               = var.server_type == "java" ? data.aws_ami.amazon_linux.id : data.aws_ami.ubuntu.id
+  ami               = local.instance_ami[var.instance_os]
   instance_type     = var.instance_type
   subnet_id         = var.subnet_id
   availability_zone = var.availability_zone
 
   vpc_security_group_ids = [var.security_group_id]
-  key_name               = var.key_name
+  key_name               = "minecraft-${terraform.workspace}-key"
   iam_instance_profile   = aws_iam_instance_profile.minecraft_server.name
 
   root_block_device {
@@ -332,16 +357,16 @@ resource "aws_instance" "minecraft" {
     "${path.module}/scripts/user_data.sh",
     {
       server_type              = var.server_type
-      bucket_name              = aws_s3_bucket.scripts.id
-      java_install_script       = local.script_names["install_java.sh"]
-      bedrock_install_script    = local.script_names["install_bedrock.sh"]
-      run_server_script         = local.script_names["run_server.sh"]
-      world_backup_script       = local.script_names["world_backup.sh"]
-      validate_script           = local.script_names["validate_all.sh"]
-      test_server_script        = local.script_names["test_server.sh"]
-      test_world_backup_script   = local.script_names["test_world_backup.sh"]
-      java_properties           = local.script_names["java.properties"]
-      bedrock_properties        = local.script_names["bedrock.properties"]
+      bucket_name              = aws_s3_bucket.file_imports.id
+      install_java_script      = local.import_files["install_java"].name
+      install_bedrock_script   = local.import_files["install_bedrock"].name
+      run_server_script        = local.import_files["run_server"].name
+      world_backup_script      = local.import_files["world_backup"].name
+      validate_script          = local.import_files["validate_all"].name
+      test_server_script       = local.import_files["test_server"].name
+      test_world_backup_script = local.import_files["test_world_backup"].name
+      java_properties          = local.import_files["java_properties"].name
+      bedrock_properties       = local.import_files["bedrock_properties"].name
       imds_endpoint            = "169.254.169.254"
       imds_token_ttl           = "21600"
       inactivity_minutes       = var.inactivity_shutdown_minutes
@@ -350,12 +375,13 @@ resource "aws_instance" "minecraft" {
 
   user_data_replace_on_change = false # Changed from true to prevent unnecessary replacements
 
+  tags = (module.instance_tags.tags)
+
   # Add lifecycle block to prevent unnecessary recreations
   lifecycle {
     ignore_changes = [
       user_data,
       user_data_base64,
-      tags["CreatedAt"] # Prevent recreation when timestamp changes
     ]
   }
 
@@ -365,20 +391,12 @@ resource "aws_instance" "minecraft" {
     http_put_response_hop_limit = 1
     instance_metadata_tags      = "enabled"
   }
-
-  tags = {
-    Name        = "minecraft-${var.environment}-${var.server_type}-server"
-    Environment = var.environment
-    ServerType  = var.server_type
-    Managed     = "terraform"
-    CreatedAt   = timestamp()
-  }
 }
 
 # CloudWatch alarm for server inactivity
 resource "aws_cloudwatch_metric_alarm" "no_players_shutdown" {
   count               = var.inactivity_shutdown_minutes > 0 ? 1 : 0
-  alarm_name          = "minecraft-${var.environment}-no-players"
+  alarm_name          = "minecraft-${terraform.workspace}-no-players"
   comparison_operator = "LessThanThreshold"
   evaluation_periods  = var.inactivity_shutdown_minutes
   metric_name         = "NetworkPacketsIn"
