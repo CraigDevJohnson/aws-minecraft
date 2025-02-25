@@ -37,5 +37,16 @@ variable "inactivity_shutdown_minutes" {
 variable "lambda_function_name" {
   description = "Name of the Lambda function"
   type        = string
-  default     = "minecraft-server-lambda-manager"
+  default     = "minecraft-server-manager"
+}
+
+variable "jwt_token" {
+  description = "Static JWT token for API authentication"
+  type        = string
+  sensitive   = true
+}
+
+variable "domain_name" {
+  description = "Domain name for JWT issuer"
+  type        = string
 }

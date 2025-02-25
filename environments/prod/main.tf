@@ -50,6 +50,8 @@ module "lambda" {
   minecraft_instance_id = module.compute.instance_id
   cors_origin           = "*" # Update this with your actual domain when ready
   lambda_function_name  = var.lambda_function_name
+  domain_name           = var.domain_name # Update this with your actual domain when ready
+  jwt_token             = var.jwt_token
 
   depends_on = [module.compute]
 }

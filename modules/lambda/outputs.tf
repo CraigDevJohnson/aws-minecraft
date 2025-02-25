@@ -14,3 +14,11 @@ output "api_gateway_arn" {
   description = "ARN of the HTTP API Gateway"
   value       = aws_apigatewayv2_api.minecraft_api.execution_arn
 }
+
+output "api_endpoint" {
+  value = aws_apigatewayv2_api.minecraft_api.api_endpoint
+}
+
+output "jwt_issuer" {
+  value = "https://${var.domain_name}"
+}

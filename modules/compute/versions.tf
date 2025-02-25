@@ -6,6 +6,13 @@ variable "version_pattern" {
 
 locals {
   files = {
+    user_data = {
+      name     = "user_data"
+      filename = "user_data.sh"
+      path     = "${path.module}/scripts/user_data.sh"
+      version  = "1.0.0"
+      type     = "text/x-shellscript"
+    }
     install_java = {
       name     = "install_java"
       filename = "install_java.sh"
@@ -56,7 +63,7 @@ locals {
       type     = "text/x-shellscript"
     }
     java_properties = {
-      name    = "java_properties"
+      name     = "java_properties"
       filename = "java.properties"
       path     = "${path.module}/configs/java.properties"
       version  = "1.0.0"

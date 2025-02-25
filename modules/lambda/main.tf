@@ -38,7 +38,7 @@ data "archive_file" "lambda_zip" {
 # Lambda function for server management
 resource "aws_lambda_function" "minecraft_manager" {
   filename      = data.archive_file.lambda_zip.output_path
-  function_name = "${var.lambda_function_name}-${terraform.workspace}"
+  function_name = var.lambda_function_name
   role          = aws_iam_role.lambda_role.arn
   handler       = "minecraft_server_manager.lambda_handler"
   runtime       = "python3.9"
@@ -114,7 +114,7 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
 
 # Add Secrets Manager permissions
 resource "aws_iam_role_policy" "lambda_secrets" {
-  name = "minecraft-manager-secrets-policy-${terraform.workspace}"
+  name = "minecraft-${terraform.workspace}-manager-secrets-policy"
   role = aws_iam_role.lambda_role.id
 
   policy = jsonencode({
@@ -156,7 +156,7 @@ resource "aws_iam_role_policy" "lambda_ssm" {
 
 # HTTP API Gateway v2
 resource "aws_apigatewayv2_api" "minecraft_api" {
-  name          = "minecraft-server-api-${terraform.workspace}"
+  name          = "minecraft-${terraform.workspace}-server-api"
   protocol_type = "HTTP"
   cors_configuration {
     allow_origins = [var.cors_origin]
@@ -166,6 +166,10 @@ resource "aws_apigatewayv2_api" "minecraft_api" {
   }
 
   tags = (module.api_tags.tags)
+
+  # lifecycle {
+  #   prevent_destroy = true
+  # }
 }
 
 resource "aws_apigatewayv2_integration" "lambda_integration" {
@@ -182,11 +186,51 @@ resource "aws_apigatewayv2_route" "minecraft_route" {
   target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
 }
 
+resource "aws_apigatewayv2_route" "web_route" {
+  api_id    = aws_apigatewayv2_api.minecraft_api.id
+  route_key = "POST /minecraft"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
+  # authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
+  # authorization_type = "JWT"
+}
+
 resource "aws_apigatewayv2_stage" "minecraft" {
   api_id      = aws_apigatewayv2_api.minecraft_api.id
   name        = terraform.workspace
   auto_deploy = true
+
+  access_log_settings {
+    destination_arn = aws_cloudwatch_log_group.api_logs.arn
+    format = jsonencode({
+      requestId    = "$context.requestId"
+      ip           = "$context.identity.sourceIp"
+      requestTime  = "$context.requestTime"
+      httpMethod   = "$context.httpMethod"
+      routeKey     = "$context.routeKey"
+      status       = "$context.status"
+      protocol     = "$context.protocol"
+      responseTime = "$context.responseLatency"
+      errorMessage = "$context.error.message"
+    })
+  }
 }
+
+resource "aws_cloudwatch_log_group" "api_logs" {
+  name              = "/aws/apigateway/minecraft-server-api"
+  retention_in_days = 7
+}
+
+# resource "aws_apigatewayv2_authorizer" "jwt" {
+#   api_id           = aws_apigatewayv2_api.minecraft_api.id
+#   authorizer_type  = "JWT"
+#   identity_sources = ["$request.header.Authorization"]
+#   name             = "minecraft-jwt-auth"
+
+#   jwt_configuration {
+#     audience = ["minecraft-${terraform.workspace}-server-client"]
+#     issuer   = "https://${var.domain_name}"
+#   }
+# }
 
 # Lambda permission for API Gateway v2
 resource "aws_lambda_permission" "api_gateway" {

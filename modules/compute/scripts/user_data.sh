@@ -1,6 +1,15 @@
 #!/bin/bash
 set -e
 
+CONFIG_FILE="$1"
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "Error: Configuration file not found"
+    exit 1
+fi
+
+# Load configuration
+eval "$(jq -r 'to_entries | .[] | "export " + .key + "=\"" + (.value|tostring) + "\""' "$CONFIG_FILE")"
+
 # Constants for OpenTofu template variables
 IMDS_ENDPOINT="${imds_endpoint}"
 IMDS_TOKEN_TTL="${imds_token_ttl}"
@@ -85,11 +94,16 @@ if [ "$LINUX_DISTRO" == "Amazon Linux" ]; then
         log_message "INFO" "aws-cli not installed, adding to package list..."
         DNF_PACKAGES+=" aws-cli"
     fi
+    if ! command -v crond &> /dev/null; then
+        log_message "INFO" "cronie not installed, adding to package list..."
+        DNF_PACKAGES+=" cronie"
+    fi
 
     # Install required packages and verify installation
     if [[ "$DNF_PACKAGES" =~ [^[:space:]] ]]; then
         log_message "INFO" "Installing required dnf packages ($DNF_PACKAGES)..."
         dnf install -y $DNF_PACKAGES
+        systemctl enable crond && systemctl start crond >/dev/null 2>&1
     else
         debug_message "No DNF packages to install"
     fi
@@ -98,13 +112,15 @@ if [ "$LINUX_DISTRO" == "Amazon Linux" ]; then
     CURL_VERSION=$(curl --version | head -n 1)
     WGET_VERSION=$(wget --version | head -n 1)
     AWS_CLI_VERSION=$(aws --version 2>&1)
-    if [ -n "$JAVA_VERSION" ] && [ -n "$JQ_VERSION" ] && [ -n "$CURL_VERSION" ] && [ -n "$WGET_VERSION" ] && [ -n "$AWS_CLI_VERSION" ]; then
+    CRON_VERSION=$(crond -V 2>&1)
+    if [ -n "$JAVA_VERSION" ] && [ -n "$JQ_VERSION" ] && [ -n "$CURL_VERSION" ] && [ -n "$WGET_VERSION" ] && [ -n "$AWS_CLI_VERSION" ] && [ -n "$CRON_VERSION" ]; then
         log_message "INFO" "Verified all required packages are present"
         debug_message "Java version: $JAVA_VERSION"
         debug_message "JQ version: $JQ_VERSION"
         debug_message "Curl version: $CURL_VERSION"
         debug_message "Wget version: $WGET_VERSION"
         debug_message "AWS CLI version: $AWS_CLI_VERSION"
+        debug_message "Cron version: $CRON_VERSION"
     else
         log_message "ERROR" "Failed to verify required packages"
         exit 1
@@ -113,7 +129,7 @@ fi
 
 # Resolve Ubuntu required packages
 if [ "$LINUX_DISTRO" == "Ubuntu" ]; then
-    log_message "INFO" "Amazon Linux detected, installing required packages..."
+    log_message "INFO" "Ubuntu detected, installing required packages..."
     # Install required packages and verify installation
     apt-get update
     apt-get upgrade -y
@@ -128,15 +144,23 @@ if [ "$LINUX_DISTRO" == "Ubuntu" ]; then
         log_message "INFO" "curl not installed, adding to package list..."
         APT_PACKAGES+=" curl"
     fi
+    if ! command -v cron &> /dev/null; then
+        log_message "INFO" "cron not installed, adding to package list..."
+        APT_PACKAGES+=" cron"
+    fi
 
     log_message "INFO" "Installing required apt packages ($APT_PACKAGES)..."
     DEBIAN_FRONTEND=noninteractive apt-get install -y $APT_PACKAGES
+    systemctl enable crond && systemctl start crond >/dev/null 2>&1
+
     CURL_VERSION=$(curl --version | head -n 1)
     JQ_VERSION=$(jq --version)
-    if [ -n "$CURL_VERSION" ] && [ -n "$JQ_VERSION" ]; then
+    CRON_VERSION=$(cron -V 2>&1)
+    if [ -n "$CURL_VERSION" ] && [ -n "$JQ_VERSION" ] && [ -n "$CRON_VERSION" ]; then
         log_message "INFO" "Installed $APT_PACKAGES packages successfully"
         debug_message "JQ version: $JQ_VERSION"
         debug_message "Curl version: $CURL_VERSION"
+        debug_message "Cron version: $CRON_VERSION"
     else
         log_message "ERROR" "Failed to install required packages"
         exit 1
@@ -374,11 +398,46 @@ fi
 log_message "INFO" "World data already in persistent storage"
 
 # Setup backup cron
-if [ "$LINUX_DISTRO" == "Amazon Linux" ]; then
-    echo "0 0 * * * ec2-user /opt/minecraft/world_backup.sh" > /etc/cron.d/minecraft-world-backup
+# Create cron.d directory if it doesn't exist
+if [ ! -d "/etc/cron.d" ]; then
+    log_message "INFO" "Creating /etc/cron.d directory..."
+    mkdir -p /etc/cron.d
+    chmod 755 /etc/cron.d
 fi
+
+# Create the cron job file with proper permissions
+log_message "INFO" "Creating backup cron job..."
+# Create cron job file for Amazon Linux
+if [ "$LINUX_DISTRO" == "Amazon Linux" ]; then
+    cat << EOF > /etc/cron.d/minecraft-world-backup
+# Minecraft world backup - runs daily at midnight
+0 0 * * * ec2-user /opt/minecraft/world_backup.sh
+EOF
+fi
+# Create cron job file for Ubuntu
 if [ "$LINUX_DISTRO" == "Ubuntu" ]; then
-    echo "0 0 * * * ubuntu /opt/minecraft/world_backup.sh" > /etc/cron.d/minecraft-world-backup
+    cat << EOF > /etc/cron.d/minecraft-world-backup
+# Minecraft world backup - runs daily at midnight
+0 0 * * * ubuntu /opt/minecraft/world_backup.sh
+EOF
+fi
+    chmod 644 /etc/cron.d/minecraft-world-backup
+    chown root:root /etc/cron.d/minecraft-world-backup
+# Verify cron job file on Amazon Linux
+if [ "$LINUX_DISTRO" == "Amazon Linux" ]; then
+    # Verify cron service is running
+    if ! systemctl is-active crond >/dev/null 2>&1; then
+        log_message "WARNING" "Cron service not running, starting it..."
+        systemctl start crond
+    fi
+fi
+# Verify cron job file on Ubuntu
+if [ "$LINUX_DISTRO" == "Ubuntu" ]; then
+    # Verify cron service is running
+    if ! systemctl is-active cron >/dev/null 2>&1; then
+        log_message "WARNING" "Cron service not running, starting it..."
+        systemctl start cron
+    fi
 fi
 
 # Create wait-for-service function before validation

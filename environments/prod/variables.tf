@@ -43,3 +43,15 @@ variable "lambda_function_name" {
   description = "Name of the Lambda function for server management"
   type        = string
 }
+
+variable "jwt_token" {
+  description = "Static JWT token for API authentication"
+  type        = string
+  sensitive   = true
+  default     = null
+}
+
+variable "domain_name" {
+  description = "Domain name for JWT issuer"
+  type        = string
+}

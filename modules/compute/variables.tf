@@ -70,3 +70,14 @@ variable "inactivity_shutdown_minutes" {
   }
 }
 
+variable "user_data" {
+  description = "User data script for EC2 instance initialization"
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.user_data == null ? true : length(var.user_data) <= 16384
+    error_message = "User data must not exceed 16384 bytes (16KB AWS limit)"
+  }
+}
+

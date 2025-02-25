@@ -29,7 +29,7 @@ output "ssh_command" {
   description = "Command to SSH into the server"
   value = var.instance_os == "ubuntu" ? (
     module.compute.public_ip != null ? "ssh -i minecraft-${terraform.workspace}-key.pem ubuntu@${module.compute.public_ip}" : "Server IP not available yet"
-  ) : ( 
+    ) : (
     module.compute.public_ip != null ? "ssh -i minecraft-${terraform.workspace}-key.pem ec2-user@${module.compute.public_ip}" : "Server IP not available yet"
   )
 }

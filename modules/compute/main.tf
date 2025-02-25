@@ -50,17 +50,47 @@ locals {
       filename = file.filename
       path     = file.path
       version  = file.version
-      etag     = md5(file(file.path))
+      etag     = filemd5(file.path)
       content  = base64encode(replace(file(file.path), "\r\n", "\n"))
       type     = file.type
     }
   }
 
+  server_config = {
+    server_type              = var.server_type
+    bucket_name              = aws_s3_bucket.file_imports.id
+    install_java_script      = local.import_files["install_java"].name
+    install_bedrock_script   = local.import_files["install_bedrock"].name
+    run_server_script        = local.import_files["run_server"].name
+    world_backup_script      = local.import_files["world_backup"].name
+    validate_script          = local.import_files["validate_all"].name
+    test_server_script       = local.import_files["test_server"].name
+    test_world_backup_script = local.import_files["test_world_backup"].name
+    java_properties          = local.import_files["java_properties"].name
+    bedrock_properties       = local.import_files["bedrock_properties"].name
+    imds_endpoint            = "169.254.169.254"
+    imds_token_ttl           = "21600"
+    inactivity_minutes       = var.inactivity_shutdown_minutes
+  }
   # Map of AMIs based on OS
   instance_ami = {
     ubuntu       = data.aws_ami.ubuntu.id
     amazon_linux = data.aws_ami.amazon_linux.id
   }
+
+  # Create base64 encoded config
+  config_json = base64encode(jsonencode(local.server_config))
+  # User data to be passed to the instance
+  minimal_user_data = <<-EOF
+#!/bin/bash
+# Write configuration to file
+echo '${local.config_json}' | base64 -d > /tmp/server_config.json
+
+# Download and run setup script
+aws s3 cp s3://${aws_s3_bucket.file_imports.id}/user_data.sh /tmp/minecraft_setup.sh
+chmod +x /tmp/minecraft_setup.sh
+/tmp/minecraft_setup.sh /tmp/server_config.json
+EOF
 }
 
 module "tags" {
@@ -352,38 +382,17 @@ resource "aws_instance" "minecraft" {
     volume_size = var.server_type == "bedrock" ? 10 : 20
     volume_type = "gp3"
   }
-
-  user_data = templatefile(
-    "${path.module}/scripts/user_data.sh",
-    {
-      server_type              = var.server_type
-      bucket_name              = aws_s3_bucket.file_imports.id
-      install_java_script      = local.import_files["install_java"].name
-      install_bedrock_script   = local.import_files["install_bedrock"].name
-      run_server_script        = local.import_files["run_server"].name
-      world_backup_script      = local.import_files["world_backup"].name
-      validate_script          = local.import_files["validate_all"].name
-      test_server_script       = local.import_files["test_server"].name
-      test_world_backup_script = local.import_files["test_world_backup"].name
-      java_properties          = local.import_files["java_properties"].name
-      bedrock_properties       = local.import_files["bedrock_properties"].name
-      imds_endpoint            = "169.254.169.254"
-      imds_token_ttl           = "21600"
-      inactivity_minutes       = var.inactivity_shutdown_minutes
-    }
-  )
-
-  user_data_replace_on_change = false # Changed from true to prevent unnecessary replacements
+  user_data = local.minimal_user_data
 
   tags = (module.instance_tags.tags)
 
   # Add lifecycle block to prevent unnecessary recreations
-  lifecycle {
-    ignore_changes = [
-      user_data,
-      user_data_base64,
-    ]
-  }
+  # lifecycle {
+  #   ignore_changes = [
+  #     user_data,
+  #     user_data_base64,
+  #   ]
+  # }
 
   metadata_options {
     http_endpoint               = "enabled"
