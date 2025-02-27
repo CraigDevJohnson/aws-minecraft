@@ -40,12 +40,6 @@ variable "lambda_function_name" {
   default     = "minecraft-server-manager"
 }
 
-variable "jwt_token" {
-  description = "Static JWT token for API authentication"
-  type        = string
-  sensitive   = true
-}
-
 variable "domain_name" {
   description = "Domain name for JWT issuer"
   type        = string

@@ -379,7 +379,7 @@ resource "aws_instance" "minecraft" {
   iam_instance_profile   = aws_iam_instance_profile.minecraft_server.name
 
   root_block_device {
-    volume_size = var.server_type == "bedrock" ? 10 : 20
+    volume_size = 30
     volume_type = "gp3"
   }
   user_data = local.minimal_user_data
