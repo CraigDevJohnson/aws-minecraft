@@ -22,6 +22,27 @@ Deploy and maintain a Minecraft server in AWS using OpenTofu. Supports both Bedr
 - SSH key pair for server access
 - Admin token for server management
 
+## Initial Setup
+
+Before deploying the infrastructure, you need to create and store the JWT token:
+
+1. Install requirements:
+   ```bash
+   pip install pyjwt boto3
+   ```
+
+2. Create the JWT token:
+   ```bash
+   python scripts/create_jwt_token.py <environment>
+   ```
+
+3. Proceed with OpenTofu deployment:
+   ```bash
+   tofu init
+   tofu plan
+   tofu apply
+   ```
+
 ## Quick Start
 
 1. Clone the repository

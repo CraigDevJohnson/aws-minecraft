@@ -35,6 +35,25 @@ data "archive_file" "lambda_zip" {
   output_path = "${path.module}/functions/minecraft_server_manager.zip"
 }
 
+# Retrieve the JWT token from SSM Parameter Store
+data "aws_ssm_parameter" "jwt_token" {
+  name = "/minecraft/${terraform.workspace}/jwt_token"
+}
+
+# Assign the JMT token to a local variable
+locals {
+  jwt_token = coalesce(var.jwt_token, data.aws_ssm_parameter.jwt_token.value)
+}
+
+# Validate the JWT token
+resource "null_resource" "validate_jwt_token" {
+  lifecycle {
+    precondition {
+      condition     = data.aws_ssm_parameter.jwt_token.value != ""
+      error_message = "JWT token not found in Parameter Store. Please run create_jwt_token.py first."
+    }
+  }
+}
 # Lambda function for server management
 resource "aws_lambda_function" "minecraft_manager" {
   filename      = data.archive_file.lambda_zip.output_path
@@ -190,8 +209,8 @@ resource "aws_apigatewayv2_route" "web_route" {
   api_id    = aws_apigatewayv2_api.minecraft_api.id
   route_key = "POST /minecraft"
   target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
-  # authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
-  # authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
+  authorization_type = "JWT"
 }
 
 resource "aws_apigatewayv2_stage" "minecraft" {
@@ -220,17 +239,17 @@ resource "aws_cloudwatch_log_group" "api_logs" {
   retention_in_days = 7
 }
 
-# resource "aws_apigatewayv2_authorizer" "jwt" {
-#   api_id           = aws_apigatewayv2_api.minecraft_api.id
-#   authorizer_type  = "JWT"
-#   identity_sources = ["$request.header.Authorization"]
-#   name             = "minecraft-jwt-auth"
+resource "aws_apigatewayv2_authorizer" "jwt" {
+  api_id           = aws_apigatewayv2_api.minecraft_api.id
+  authorizer_type  = "JWT"
+  identity_sources = ["$request.header.Authorization"]
+  name             = "minecraft-jwt-auth"
 
-#   jwt_configuration {
-#     audience = ["minecraft-${terraform.workspace}-server-client"]
-#     issuer   = "https://${var.domain_name}"
-#   }
-# }
+  jwt_configuration {
+    audience = ["minecraft-${terraform.workspace}-server-client"]
+    issuer   = "https://${var.domain_name}"
+  }
+}
 
 # Lambda permission for API Gateway v2
 resource "aws_lambda_permission" "api_gateway" {
