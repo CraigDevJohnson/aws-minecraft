@@ -33,3 +33,8 @@ output "ssh_command" {
     module.compute.public_ip != null ? "ssh -i minecraft-${terraform.workspace}-key.pem ec2-user@${module.compute.public_ip}" : "Server IP not available yet"
   )
 }
+
+output "instance_id" {
+  description = "EC2 instance ID of the Minecraft server"
+  value       = module.compute.instance_id
+}

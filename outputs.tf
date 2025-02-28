@@ -25,3 +25,8 @@ output "ssh_command" {
   description = "Command to SSH into the server"
   value       = module.minecraft_environment.ssh_command
 }
+
+output "instance_id" {
+  description = "EC2 instance ID of the Minecraft server"
+  value       = module.minecraft_environment.instance_id
+}
